@@ -1,347 +1,1098 @@
 #!/usr/bin/env bash
 
 function cmd_write() {
-    
+
     local ESC=$'\e'
+    local NL=$'\n'
     local CR=$'\r'
 
-    function make_ansi() {
-        local fg=$1; local bg=$2; local seq=""
-        [[ -n "$fg" ]] && seq+="${ESC}[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="${ESC}[48;5;${bg}m"
-        echo "$seq"
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
     }
 
-    local width=50
-    local height=5
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0 
+        local -r ESC=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) 
+                    case "$c" in
+                        "$ESC") state=1 ;;
+                        "$BEL") : ;;
+                        *) out+="$c" ;;
+                    esac
+                    ;;
+                1) 
+                    case "$c" in
+                        '[') state=2 ;;
+                        ']') state=3 ;;
+                        '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                        "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>')
+                            state=0 ;;
+                        *)
+                            out+="${ESC}${c}"
+                            state=0
+                            ;;
+                    esac
+                    ;;
+                2) 
+                    case "$c" in
+                        ';'|'?'|[0-9]) : ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                3) 
+                    case "$c" in
+                        [0-9]) state=4 ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                4) 
+                    case "$c" in
+                        "$BEL") state=0 ;;
+                        "$ESC") state=5 ;;
+                    esac
+                    ;;
+                5) 
+                    state=0
+                    ;;
+            esac
+        done
+
+        printf '%s' "$out"
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function _list_color_names() {
+        _css_init
+        printf '%s\n' "${!_CSS_COLORS[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function _normalize_hex() {
+        local val="${1,,}" core=""
+        if [[ "$val" == \#* ]]; then
+            core="${val#\#}"
+        elif [[ "$val" =~ ^[a-f0-9]+$ && "$val" =~ [a-f] ]]; then
+            core="$val"
+        else
+            return 1
+        fi
+        case "${#core}" in
+            3) core="${core:0:1}${core:0:1}${core:1:1}${core:1:1}${core:2:1}${core:2:1}" ;;
+            6) : ;;
+            *) return 1 ;;
+        esac
+        [[ "$core" =~ ^[a-f0-9]{6}$ ]] || return 1
+        printf '%s' "$core"
+        return 0
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        _normalize_hex "$val" >/dev/null && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( 10#$val >= 0 && 10#$val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+    function strict_bool() {
+        local val="${1,,}"
+        case "$val" in
+            true|1|yes) printf "true" ;;
+            false|0|no) printf "false" ;;
+            *) printf "INVALID" ;;
+        esac
+    }
+
+    function _color_params() {
+        local val="${1,,}" layer="$2" hex=""
+        [[ -z "$val" || "$val" == "none" || "$val" == "clear" ]] && return
+
+        if hex="$(_normalize_hex "$val")"; then
+            local r=$(( 16#${hex:0:2} ))
+            local g=$(( 16#${hex:2:2} ))
+            local b=$(( 16#${hex:4:2} ))
+            printf '%d;2;%d;%d;%d' "$layer" "$r" "$g" "$b"
+            return
+        fi
+
+        if [[ "$val" =~ ^[0-9]+$ ]]; then
+            printf '%d;5;%d' "$layer" "$((10#$val))"
+            return
+        fi
+
+        local base=0
+        [[ "$layer" == 38 ]] && base=30
+        [[ "$layer" == 48 ]] && base=40
+
+        local code=""
+        case "$val" in
+            black)                      code=$((base + 0)) ;;
+            red)                        code=$((base + 1)) ;;
+            green)                      code=$((base + 2)) ;;
+            yellow)                     code=$((base + 3)) ;;
+            blue)                       code=$((base + 4)) ;;
+            magenta|purple)             code=$((base + 5)) ;;
+            cyan)                       code=$((base + 6)) ;;
+            white)                      code=$((base + 7)) ;;
+            gray|grey|brightblack)      code=$((base + 60)) ;;
+            brightred)                  code=$((base + 61)) ;;
+            brightgreen)                code=$((base + 62)) ;;
+            brightyellow)               code=$((base + 63)) ;;
+            brightblue)                 code=$((base + 64)) ;;
+            brightmagenta|brightpurple) code=$((base + 65)) ;;
+            brightcyan)                 code=$((base + 66)) ;;
+            brightwhite)                code=$((base + 67)) ;;
+            *)
+                _css_init
+                local css_hex="${_CSS_COLORS[$val]:-}"
+                if [[ -n "$css_hex" ]]; then
+                    local r=$(( 16#${css_hex:0:2} ))
+                    local g=$(( 16#${css_hex:2:2} ))
+                    local b=$(( 16#${css_hex:4:2} ))
+                    printf '%d;2;%d;%d;%d' "$layer" "$r" "$g" "$b"
+                fi
+                return
+                ;;
+        esac
+        printf '%d' "$code"
+    }
+
+    function make_ansi() {
+        local fg="$1" bg="$2" reverse="${3:-false}"
+        local fg_p bg_p params=()
+        fg_p="$(_color_params "$fg" 38)"
+        bg_p="$(_color_params "$bg" 48)"
+        [[ "$reverse" == "true" ]] && params+=("7")
+        [[ -n "$fg_p" ]] && params+=("$fg_p")
+        [[ -n "$bg_p" ]] && params+=("$bg_p")
+        (( ${#params[@]} == 0 )) && return
+        local IFS=';'
+        printf "${ESC}[%sm" "${params[*]}"
+    }
+
+    function _style_prefix() {
+        local bold="$1" italic="$2" underline="$3"
+        [[ "$bold"      == "true" ]] && printf "${ESC}[1m"
+        [[ "$italic"    == "true" ]] && printf "${ESC}[3m"
+        [[ "$underline" == "true" ]] && printf "${ESC}[4m"
+    }
+
+    function make_style() {
+        local fg="$1" bg="$2" bold="$3" italic="$4" underline="$5"
+        _style_prefix "$bold" "$italic" "$underline"
+        make_ansi "$fg" "$bg"
+    }
+
+    local width=0   
+    local height=0  
     local header=""
     local placeholder="Write something..."
     local prompt_char="┃ "
-    
+    local char_limit=0
+    local timeout=0
+    local cursor_mode="blink"
+    local show_help_footer=true
+    local soft_wrap=true
+    local tab_size=4
+
+    local show_line_numbers=false
+    local line_numbers_relative=false
+    local line_numbers_current_left=false
+    local line_numbers_hide_tilde=false
+
+    local cursorline=false
+    local cursorline_number=false
+    local c_cursorline_bg="236"
+
     local c_cursor_fg="255"
-    local c_cursor_bg="212"
+    local c_cursor_bg=""
     local c_placeholder_fg="240"
     local c_header_fg="212"
+    local c_header_bg=""
     local c_prompt_fg="240"
-    
-    local BUFFER=("") 
-    local cursor_y=0  
-    local cursor_x=0  
-    local scroll_offset=0
+    local c_prompt_bg=""
+    local c_text_fg=""
+    local c_text_bg=""
+    local c_footer_fg=""
+    local c_footer_bg=""
+    local c_line_num_fg="240"
+    local c_line_num_current_fg="255"
+    local c_line_num_current_bg=""
+
+    local text_bold=false text_italic=false text_underline=false
+    local ln_bold=false ln_italic=false ln_underline=false
+    local ln_cur_bold=false ln_cur_italic=false ln_cur_underline=false
+
+    local h_padding="0 0 0 0"
+    local p_padding="0 0 0 0"
+    local f_padding="0 0 0 0"
+
+    local footer_text=""
+
+    local BUFFER=("")
+    local cursor_y=0
+    local cursor_x=0
+    local scroll_y=0
+    local scroll_x=0
     local cursor_visible=1
-    local show_help=true
 
     function show_help_panel() {
         cat <<EOF
 Usage: bash-utils write [flags]
 
-Multi-line text editor.
-Controls:
-  Type to insert text.
-  Enter to insert newline.
-  Backspace/Delete to delete.
-  Arrows/Home/End to navigate.
-  Ctrl+D to Save & Exit.
-  Ctrl+C to Cancel.
+Multi-line text editor. Controls:
+  Type         Insert text
+  Enter        New line
+  Backspace    Delete character
+  Tab          Insert spaces (def: 4)
+  Arrows       Navigate
+  Home/End     Start/end of line
+  Ctrl+A       Start of line
+  Ctrl+E       End of line
+  Ctrl+K       Delete to end of line
+  Ctrl+U       Delete entire line
+  Ctrl+D       Save & Exit
+  Ctrl+C       Cancel
 
 Flags:
-  -h, --help                Show help
-      --width=50            Width of the area (approx)
-      --height=5            Visible height
-      --header=""           Header text
-      --placeholder=""      Placeholder text
-      --value=""            Initial value
+  -h, --help                         Show help
+      --width=0                      Width of the TUI (default: 0 = auto fill TTY)
+      --height=0                     Height of the TUI in visible lines (default: 0 = auto fit content)
+      --header=""                    Header text
+      --placeholder=""               Placeholder text
+      --value=""                     Initial value
+      --char-limit=0                 Max characters (0 = no limit)
+      --timeout=0                    Abort after N seconds (0 = no timeout)
+      --tab=4                        Number of spaces for Tab key (default: 4)
+      --cursor.mode="blink"          Cursor mode: blink, hide, static
+      --[no-]show-help               Show footer help (default: true)
+      --[no-]soft-wrap               Wrap long lines visually (default: true)
 
-Style Flags:
-  --cursor.foreground       Cursor block text color
-  --cursor.background       Cursor block background color
+Line Number Flags:
+      --line-numbers                       Enable line numbers
+      --line-numbers.relative              Show relative numbers (current=absolute, rest=distance)
+      --line-numbers.current-left          Left-align the current line's number (push it left)
+      --line-numbers.hide-tilde            Hide the "~" shown on empty lines past the buffer
+
+Cursorline Flags:
+      --cursorline                   Highlight the active line's text (like cursorlineopt=line)
+      --cursorline.number            Also highlight the line number gutter (like cursorlineopt=both)
+      --cursorline.background="236"  Background color for the active line
+
+Style Flags (Colors accept a name (incl. CSS names like 'coral'), 0-255 or #RRGGBB):
+  --cursor.foreground="255"             Cursor text color
+  --cursor.background=""             Cursor background color
+
+  --text.foreground=""                   Input text color
+  --text.background=""                   Input text background
+  --text.bold                            Bold input text
+  --text.italic                          Italic input text
+  --text.underline                       Underline input text
+
+  --prompt.foreground="240"             Prompt char (┃) color
+  --prompt.background=""                Prompt char (┃) background
+  --prompt.padding="0 0 0 0"           Prompt padding
+  --header.foreground="212"             Header text color
+  --header.background=""                Header background
+  --header.padding="0 0 0 0"           Header padding
+  --placeholder.foreground="240"        Placeholder color
+  --footer=""                           Custom footer text
+  --footer.foreground=""                Footer color
+  --footer.background=""                Footer background
+  --footer.padding="0 0 0 0"           Footer padding
+
+  --line-numbers.foreground="240"            Line number color (inactive)
+  --line-numbers.bold                        Bold inactive line numbers
+  --line-numbers.italic                      Italic inactive line numbers
+  --line-numbers.underline                   Underline inactive line numbers
+
+  --line-numbers.current.foreground="255"    Current line number color
+  --line-numbers.current.background=""       Current line number background
+  --line-numbers.current.bold                Bold current line number
+  --line-numbers.current.italic              Italic current line number
+  --line-numbers.current.underline           Underline current line number
 EOF
     }
 
-    local args_options=()
-    local parse_args=()
-    
     while [[ $# -gt 0 ]]; do
-        if [[ "$1" == -* ]]; then
-            parse_args+=("$1")
-            if [[ "$1" != *=* && "$1" != --no-* ]]; then
-                 if [[ -n "$2" && "$2" != -* ]]; then parse_args+=("$2"); shift; fi
-            fi
-        else
-            args_options+=("$1")
-        fi
-        shift
-    done
-    
-    set -- "${parse_args[@]}"
+        local key="$1"
+        local val=""
+        local has_val="false"
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help) show_help_panel; return 0 ;;
-            --width=*)    width="${1#*=}"; shift ;;
-            --width)      width="$2"; shift 2 ;;
-            --height=*)   height="${1#*=}"; shift ;;
-            --height)     height="$2"; shift 2 ;;
-            --header=*)   header="${1#*=}"; shift ;;
-            --header)     header="$2"; shift 2 ;;
-            --placeholder=*) placeholder="${1#*=}"; shift ;;
-            --placeholder)   placeholder="$2"; shift 2 ;;
-            --value=*)    
-                local val="${1#*=}"
-                mapfile -t BUFFER <<< "$val"
-                shift ;;
-            --value)
-                local val="$2"
-                mapfile -t BUFFER <<< "$val"
-                shift 2 ;;
-            *) shift ;;
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            has_val="true"
+        fi
+
+        case "$key" in
+            -h|--help)                        show_help_panel; return 0 ;;
+            --line-numbers)                   show_line_numbers=true; shift; continue ;;
+            --line-numbers.relative)          line_numbers_relative=true; show_line_numbers=true; shift; continue ;;
+            --line-numbers.current-left)      line_numbers_current_left=true; shift; continue ;;
+            --line-numbers.hide-tilde)        line_numbers_hide_tilde=true; shift; continue ;;
+            --line-numbers.bold)              ln_bold=true; shift; continue ;;
+            --line-numbers.italic)            ln_italic=true; shift; continue ;;
+            --line-numbers.underline)         ln_underline=true; shift; continue ;;
+            --line-numbers.current.bold)      ln_cur_bold=true; shift; continue ;;
+            --line-numbers.current.italic)    ln_cur_italic=true; shift; continue ;;
+            --line-numbers.current.underline) ln_cur_underline=true; shift; continue ;;
+            --text.bold)                      text_bold=true; shift; continue ;;
+            --text.italic)                    text_italic=true; shift; continue ;;
+            --text.underline)                 text_underline=true; shift; continue ;;
+            --cursorline)                     cursorline=true; shift; continue ;;
+            --cursorline.number)              cursorline_number=true; shift; continue ;;
+            --soft-wrap)                      soft_wrap=true; shift; continue ;;
+            --no-soft-wrap)                   soft_wrap=false; shift; continue ;;
+            --show-help)                      show_help_footer=true; shift; continue ;;
+            --no-show-help)                   show_help_footer=false; shift; continue ;;
+
+            --width|--height|--header|--placeholder|--prompt|--char-limit|--timeout|--tab|--cursor.mode|--footer|--value|--prompt.padding|--header.padding|--footer.padding|--cursorline.background|--cursor.foreground|--cursor.background|--text.foreground|--text.background|--prompt.foreground|--prompt.background|--header.foreground|--header.background|--placeholder.foreground|--footer.foreground|--footer.background|--line-numbers.foreground|--line-numbers.current.foreground|--line-numbers.current.background)
+                
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then
+                        die "La bandera '${key}' requiere un valor asignado."
+                    fi
+                    val="$2"
+                    shift 2
+                else
+                    shift
+                fi
+
+                case "$key" in
+                    --width|--height)
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '${key}' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        [[ "$key" == "--width" ]] && width="$val" || height="$val"
+                        ;;
+                    --char-limit|--timeout)
+                        val="${val%s}"
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '${key}' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        [[ "$key" == "--char-limit" ]] && char_limit="$val" || timeout="$val"
+                        ;;
+                    --tab)
+                        [[ ! "$val" =~ ^[1-9][0-9]*$ ]] && die "Valor para '--tab' inválido. Recibido: '${val}'. Literal esperado: Entero > 0."
+                        tab_size="$val"
+                        ;;
+                    --cursor.mode)
+                        case "${val,,}" in
+                            blink|hide|static) cursor_mode="${val,,}" ;;
+                            *) die "Valor para '--cursor.mode' inválido. Recibido: '${val}'. Literales esperados: blink, hide, static." ;;
+                        esac
+                        ;;
+                    --prompt.padding|--header.padding|--footer.padding)
+                        [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+){0,3}$ ]] && die "Padding inválido en '${key}'. Recibido: '${val}'. Literal esperado: 1 a 4 números separados por espacios."
+                        case "$key" in
+                            --prompt.padding) p_padding="$val" ;;
+                            --header.padding) h_padding="$val" ;;
+                            --footer.padding) f_padding="$val" ;;
+                        esac
+                        ;;
+                    --header) header="$val" ;;
+                    --placeholder) placeholder="$val" ;;
+                    --prompt) prompt_char="$val" ;;
+                    --footer) footer_text="$val" ;;
+                    --value)
+                        val="$(strip_ansi "$val")"
+                        mapfile -t BUFFER <<< "$val"
+                        ;;
+                    --cursorline.background|--cursor.foreground|--cursor.background|--text.foreground|--text.background|--prompt.foreground|--prompt.background|--header.foreground|--header.background|--placeholder.foreground|--footer.foreground|--footer.background|--line-numbers.foreground|--line-numbers.current.foreground|--line-numbers.current.background)
+                        if ! is_valid_color "$val"; then
+                            die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                        fi
+                        case "$key" in
+                            --cursorline.background)            c_cursorline_bg="$val" ;;
+                            --cursor.foreground)                c_cursor_fg="$val" ;;
+                            --cursor.background)                c_cursor_bg="$val" ;;
+                            --text.foreground)                  c_text_fg="$val" ;;
+                            --text.background)                  c_text_bg="$val" ;;
+                            --prompt.foreground)                c_prompt_fg="$val" ;;
+                            --prompt.background)                c_prompt_bg="$val" ;;
+                            --header.foreground)                c_header_fg="$val" ;;
+                            --header.background)                c_header_bg="$val" ;;
+                            --placeholder.foreground)           c_placeholder_fg="$val" ;;
+                            --footer.foreground)                c_footer_fg="$val" ;;
+                            --footer.background)                c_footer_bg="$val" ;;
+                            --line-numbers.foreground)          c_line_num_fg="$val" ;;
+                            --line-numbers.current.foreground)  c_line_num_current_fg="$val" ;;
+                            --line-numbers.current.background)  c_line_num_current_bg="$val" ;;
+                        esac
+                        ;;
+                esac
+                ;;
+
+            *)
+                die "Bandera desconocida o no soportada: '${key}'. Usa '--help' para ver la lista de banderas disponibles."
+                ;;
         esac
     done
 
     if [[ ${#BUFFER[@]} -eq 1 && -z "${BUFFER[0]}" && ! -t 0 ]]; then
         BUFFER=()
-        while IFS= read -r line; do BUFFER+=("$line"); done
+        local input_data
+        input_data="$(cat)"
+        input_data="$(strip_ansi "$input_data")"
+        mapfile -t BUFFER <<< "$input_data"
         exec 0< /dev/tty
     fi
+    [[ ${#BUFFER[@]} -eq 0 ]] && BUFFER=("")
 
-    if [[ ${#BUFFER[@]} -eq 0 ]]; then BUFFER=(""); fi
-    
-    cursor_y=$((${#BUFFER[@]} - 1))
+    cursor_y=$(( ${#BUFFER[@]} - 1 ))
     cursor_x=${#BUFFER[$cursor_y]}
+    [[ "$cursor_mode" == "hide" ]] && cursor_visible=0
 
-    local s_header="$(make_ansi "$c_header_fg" "")"
-    local s_placeholder="$(make_ansi "$c_placeholder_fg" "")"
-    local s_prompt="$(make_ansi "$c_prompt_fg" "")"
-    local s_cursor_on="${ESC}[7m" 
-    local s_cursor_off="${ESC}[27m"
     local reset="${ESC}[0m"
+    local dimmed="${ESC}[2m"
 
-    local header_lines=0
-    if [[ -n "$header" ]]; then
-        header_lines=$(echo -e "$header" | grep -c "^")
+    local s_header="$(make_ansi "$c_header_fg" "$c_header_bg")"
+    local s_placeholder="$(make_ansi "$c_placeholder_fg" "")"
+    local s_prompt="$(make_ansi "$c_prompt_fg" "$c_prompt_bg")"
+    local s_text="$(make_style "$c_text_fg" "$c_text_bg" "$text_bold" "$text_italic" "$text_underline")"
+    local s_cursor_on="$(make_ansi "$c_cursor_fg" "$c_cursor_bg" true)"
+    local s_line_num="$(make_style "$c_line_num_fg" "" "$ln_bold" "$ln_italic" "$ln_underline")"
+    local s_line_num_cur="$(make_style "$c_line_num_current_fg" "$c_line_num_current_bg" "$ln_cur_bold" "$ln_cur_italic" "$ln_cur_underline")"
+    local s_cursorline="$(make_ansi "" "$c_cursorline_bg")"
+
+    local s_line_num_cur_active="$s_line_num_cur"
+    if [[ "$cursorline" == "true" && "$cursorline_number" == "true" && -z "$c_line_num_current_bg" ]]; then
+        s_line_num_cur_active="$(make_style "$c_line_num_current_fg" "$c_cursorline_bg" "$ln_cur_bold" "$ln_cur_italic" "$ln_cur_underline")"
     fi
-    local footer_lines=1 
-    local total_lines=$(( header_lines + height + footer_lines ))
 
-    tput civis >&2
-    trap 'echo -ne "${ESC}[${total_lines}A${ESC}[J" >&2; tput cnorm >&2; return 130' SIGINT
+    local s_footer=""
+    if [[ -n "$c_footer_fg" || -n "$c_footer_bg" ]]; then
+        s_footer="$(make_ansi "$c_footer_fg" "$c_footer_bg")"
+    else
+        s_footer="${dimmed}"
+    fi
 
-    function draw() {
-        if [[ -n "$header" ]]; then
-            echo -e "${s_header}${header}${reset}${ESC}[K" >&2
-        fi
+    local actual_footer="$footer_text"
+    if [[ -z "$actual_footer" ]]; then
+        actual_footer="ctrl+d save  •  ctrl+c cancel  •  arrows navigate"
+    fi
 
-        if (( cursor_y < scroll_offset )); then
-            scroll_offset=$cursor_y
-        elif (( cursor_y >= scroll_offset + height )); then
-            scroll_offset=$(( cursor_y - height + 1 ))
-        fi
-
-        for (( i=0; i<height; i++ )); do
-            local y=$(( scroll_offset + i ))
-            local line_content=""
-            local prompt="${s_prompt}${prompt_char}${reset}"
-
-            if (( y >= ${#BUFFER[@]} )); then
-                echo -e "${s_prompt}~ ${reset}${ESC}[K" >&2
-                continue
-            fi
-
-            local raw_line="${BUFFER[$y]}"
-            
-            if (( y == cursor_y )); then
-                if [[ ${#BUFFER[@]} -eq 1 && -z "${BUFFER[0]}" && $cursor_x -eq 0 ]]; then
-                     local char_at_cursor=" "
-                     if [[ -n "$placeholder" ]]; then
-                        local p_first="${placeholder:0:1}"
-                        local p_rest="${placeholder:1}"
-                        
-                        if [[ $cursor_visible -eq 1 ]]; then
-                            line_content="${s_cursor_on}${p_first}${s_cursor_off}${s_placeholder}${p_rest}${reset}"
-                        else
-                             line_content="${s_placeholder}${placeholder}${reset}"
-                        fi
-                     else
-                        if [[ $cursor_visible -eq 1 ]]; then line_content="${s_cursor_on} ${s_cursor_off}"; else line_content=" "; fi
-                     fi
-                else
-                    local len=${#raw_line}
-                    
-                    if (( cursor_x >= len )); then
-                        local pre="${raw_line}"
-                        local cursor_char=" " 
-                        if [[ $cursor_visible -eq 1 ]]; then
-                            line_content="${pre}${s_cursor_on}${cursor_char}${s_cursor_off}"
-                        else
-                            line_content="${pre}${cursor_char}"
-                        fi
-                    else
-                        local pre="${raw_line:0:cursor_x}"
-                        local char="${raw_line:cursor_x:1}"
-                        local post="${raw_line:cursor_x+1}"
-                        
-                        if [[ $cursor_visible -eq 1 ]]; then
-                            line_content="${pre}${s_cursor_on}${char}${s_cursor_off}${post}"
-                        else
-                            line_content="${pre}${char}${post}"
-                        fi
-                    fi
-                fi
-            else
-                if [[ ${#BUFFER[@]} -eq 1 && -z "${BUFFER[0]}" ]]; then
-                    line_content="${s_placeholder}${placeholder}${reset}"
-                else
-                    line_content="${raw_line}"
-                fi
-            fi
-
-            echo -e "${prompt}${line_content}${reset}${ESC}[K" >&2
-        done
-
-        echo -e "${ESC}[2mCtrl+D to Save • Ctrl+C to Cancel${reset}${ESC}[K" >&2
+    function _parse_padding() {
+        local raw="$1"
+        local -n _t=$2 _r=$3 _b=$4 _l=$5
+        _t=0; _r=0; _b=0; _l=0
+        read -ra _pv <<< "$raw"
+        case "${#_pv[@]}" in
+            1) _t="${_pv[0]}"; _r="${_pv[0]}"; _b="${_pv[0]}"; _l="${_pv[0]}" ;;
+            2) _t="${_pv[0]}"; _b="${_pv[0]}"; _r="${_pv[1]}"; _l="${_pv[1]}" ;;
+            3) _t="${_pv[0]}"; _r="${_pv[1]}"; _l="${_pv[1]}"; _b="${_pv[2]}" ;;
+            4) _t="${_pv[0]}"; _r="${_pv[1]}"; _b="${_pv[2]}"; _l="${_pv[3]}" ;;
+        esac
     }
 
+    local h_pt h_pr h_pb h_pl
+    local p_pt p_pr p_pb p_pl
+    local f_pt f_pr f_pb f_pl
+    _parse_padding "$h_padding" h_pt h_pr h_pb h_pl
+    _parse_padding "$p_padding" p_pt p_pr p_pb p_pl
+    _parse_padding "$f_padding" f_pt f_pr f_pb f_pl
+
+    local h_indent="" p_indent="" f_indent=""
+    for (( _p=0; _p<h_pl; _p++ )); do h_indent+=" "; done
+    for (( _p=0; _p<p_pl; _p++ )); do p_indent+=" "; done
+    for (( _p=0; _p<f_pl; _p++ )); do f_indent+=" "; done
+
+    function _update_ln_width() {
+        local total_buf_lines=${#BUFFER[@]}
+        local digits=${#total_buf_lines}
+        (( digits < 2 )) && digits=2
+        ln_num_w=$digits
+        [[ "$line_numbers_current_left" == "true" ]] && (( ln_num_w++ ))
+        ln_total=$(( 1 + ln_num_w + 1 ))
+    }
+
+    local ln_num_w=0 ln_total=0
+    [[ "$show_line_numbers" == "true" ]] && _update_ln_width
+
+    local term_cols=$(tput cols 2>/dev/null || echo 80)
+    local term_lines=$(tput lines 2>/dev/null || echo 24)
+
+    [[ "$width" -le 0 || "$width" -gt "$term_cols" ]] && width=$term_cols
+
+    local header_lines=0
+    local h_lines_arr=()
+    if [[ -n "$header" ]]; then
+        mapfile -t h_lines_arr <<< "$header"
+        header_lines=${#h_lines_arr[@]}
+    else
+        h_pt=0
+        h_pb=0
+    fi
+    local h_lines=$(( header_lines + h_pt + h_pb ))
+
+    local footer_lines=0
+    [[ "$show_help_footer" == "true" ]] && footer_lines=$(( 1 + f_pt + f_pb ))
+
+    if [[ "$height" -le 0 ]]; then
+        local visible_w=$(( width - ln_total - ${#prompt_char} ))
+        (( visible_w < 1 )) && visible_w=1
+        
+        local content_vlines=0
+        for raw_line in "${BUFFER[@]}"; do
+            local line_len=${#raw_line}
+            local segs=$(( line_len == 0 ? 1 : (line_len + visible_w - 1) / visible_w ))
+            (( content_vlines += segs ))
+        done
+        
+        height=$content_vlines
+        [[ $height -lt 3 ]] && height=3 
+
+        local max_height=$(( term_lines - h_lines - p_pt - p_pb - footer_lines - 2 ))
+        [[ $height -gt $max_height ]] && height=$max_height
+        [[ $height -le 0 ]] && height=1
+    fi
+
+    local total_lines=$(( h_lines + p_pt + height + p_pb + footer_lines ))
+
+    local alloc_str=""
+    for ((i=0; i<total_lines; i++)); do alloc_str+="${NL}"; done
+    printf '%s' "${alloc_str}${ESC}[${total_lines}A" >&2
+
+    local stty_orig
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon -isig < /dev/tty 2>/dev/null
+
+    local _interrupted=0
+    local needs_redraw=true
+
+    trap '_interrupted=1' SIGINT TERM
+    trap 'needs_redraw=true' SIGWINCH
+
+    function cleanup() {
+        while read -rsn1 -t 0.05 _trash < /dev/tty 2>/dev/null; do :; done
+        if [[ -n "$stty_orig" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        tput cnorm >&2
+        printf '%s' "${ESC}[?7h${ESC}[?1000l${ESC}[?1002l${ESC}[?1006l" >&2
+    }
+
+    function _clear_and_exit() {
+        local clear_frame=""
+        for ((k=0; k<total_lines; k++)); do clear_frame+="${ESC}[K${NL}"; done
+        printf '%s' "${clear_frame}${ESC}[${total_lines}A" >&2
+        cleanup
+    }
+
+    tput civis >&2
+    printf '%s' "${ESC}[?7l" >&2
+
+    function _ln_block() {
+        local y="$1"
+        local num_str="" style=""
+
+        if (( y == cursor_y )); then
+            if [[ "$line_numbers_current_left" == "true" ]]; then
+                printf -v num_str "%-*d" "$ln_num_w" "$(( y + 1 ))"
+            else
+                printf -v num_str "%*d" "$ln_num_w" "$(( y + 1 ))"
+            fi
+            style="${s_line_num_cur_active}"
+        elif [[ "$line_numbers_relative" == "true" ]]; then
+            local dist=$(( y - cursor_y ))
+            (( dist < 0 )) && dist=$(( -dist ))
+            printf -v num_str "%*d" "$ln_num_w" "$dist"
+            style="${s_line_num}"
+        else
+            printf -v num_str "%*d" "$ln_num_w" "$(( y + 1 ))"
+            style="${s_line_num}"
+        fi
+
+        printf ' %s%s%s ' "${style}" "${num_str}" "${reset}"
+    }
+
+    function _ln_block_tilde() {
+        if [[ "$line_numbers_hide_tilde" == "true" ]]; then
+            local blank; printf -v blank "%*s" "$ln_total" ""; printf '%s' "$blank"; return
+        fi
+        local tilde_str; printf -v tilde_str "%*s" "$ln_num_w" "~"
+        printf ' %s%s%s ' "${s_line_num}" "${tilde_str}" "${reset}"
+    }
+
+    function _ln_block_cont() {
+        local blank; printf -v blank "%*s" "$ln_total" ""
+        printf '%s' "$blank"
+    }
+
+    function draw() {
+        local frame="${reset}"
+
+        if [[ -n "$header" ]]; then
+            for (( _p=0; _p<h_pt; _p++ )); do frame+="${ESC}[K${NL}"; done
+            for h_line in "${h_lines_arr[@]}"; do
+                frame+="${h_indent}${s_header}${h_line}${reset}${ESC}[K${NL}"
+            done
+            for (( _p=0; _p<h_pb; _p++ )); do frame+="${ESC}[K${NL}"; done
+        fi
+
+        local visible_w=$(( width - ln_total - ${#prompt_char} ))
+        (( visible_w < 1 )) && visible_w=1
+
+        if (( cursor_y < scroll_y )); then
+            scroll_y=$cursor_y
+        fi
+        [[ $scroll_y -lt 0 ]] && scroll_y=0
+
+        if [[ "$soft_wrap" == "true" ]]; then
+            local _vcr=0
+            for (( _y=scroll_y; _y<cursor_y; _y++ )); do
+                local _ll=${#BUFFER[$_y]}
+                local _nvr=$(( _ll == 0 ? 1 : (_ll + visible_w - 1) / visible_w ))
+                (( _vcr += _nvr ))
+            done
+            (( _vcr += cursor_x / visible_w ))
+            while (( _vcr >= height && scroll_y < cursor_y )); do
+                local _ll=${#BUFFER[$scroll_y]}
+                local _nvr=$(( _ll == 0 ? 1 : (_ll + visible_w - 1) / visible_w ))
+                (( _vcr -= _nvr ))
+                (( scroll_y++ ))
+            done
+            scroll_x=0
+        else
+            if (( cursor_y >= scroll_y + height )); then
+                scroll_y=$(( cursor_y - height + 1 ))
+            fi
+            if (( cursor_x < scroll_x )); then
+                scroll_x=$cursor_x
+            elif (( cursor_x >= scroll_x + visible_w )); then
+                scroll_x=$(( cursor_x - visible_w + 1 ))
+            fi
+            [[ $scroll_x -lt 0 ]] && scroll_x=0
+        fi
+
+        for (( _p=0; _p<p_pt; _p++ )); do frame+="${ESC}[K${NL}"; done
+
+        local is_empty_buf=false
+        [[ ${#BUFFER[@]} -eq 1 && -z "${BUFFER[0]}" ]] && is_empty_buf=true
+
+        if [[ "$soft_wrap" == "true" ]]; then
+            local vrows_printed=0
+            local buf_y=$scroll_y
+
+            while (( vrows_printed < height )); do
+                if (( buf_y >= ${#BUFFER[@]} )); then
+                    while (( vrows_printed < height )); do
+                        local _tp=""
+                        [[ "$show_line_numbers" == "true" ]] && _tp="$(_ln_block_tilde)"
+                        frame+="${p_indent}${_tp}${s_prompt}${prompt_char}${reset}${ESC}[K${reset}${NL}"
+                        (( vrows_printed++ ))
+                    done
+                    break
+                fi
+
+                local raw_line="${BUFFER[$buf_y]}"
+                local line_len=${#raw_line}
+                local is_current=false
+                (( buf_y == cursor_y )) && is_current=true
+
+                local cl_on=""
+                [[ "$cursorline" == "true" && "$is_current" == "true" ]] && cl_on="${s_cursorline}"
+
+                if [[ "$is_empty_buf" == "true" ]]; then
+                    local _lp=""
+                    [[ "$show_line_numbers" == "true" ]] && _lp="$(_ln_block "0")"
+                    local line_content=""
+                    if [[ -n "$placeholder" ]]; then
+                        local p_vis="${placeholder:0:$visible_w}"
+                        local p_first="${p_vis:0:1}"; local p_rest="${p_vis:1}"
+                        [[ -z "$p_first" ]] && p_first=" "
+                        if [[ $cursor_visible -eq 1 ]]; then
+                            line_content="${s_cursor_on}${p_first}${reset}${cl_on}${s_placeholder}${p_rest}${reset}"
+                        else
+                            line_content="${s_placeholder}${p_vis}${reset}"
+                        fi
+                    fi
+                    frame+="${p_indent}${_lp}${cl_on}${s_prompt}${prompt_char}${reset}${cl_on}${line_content}${cl_on}${ESC}[K${reset}${NL}"
+                    (( vrows_printed++ ))
+                    (( buf_y++ ))
+                    continue
+                fi
+
+                local num_segs
+                (( line_len == 0 )) && num_segs=1 || num_segs=$(( (line_len + visible_w - 1) / visible_w ))
+
+                local seg_idx=0
+                while (( seg_idx < num_segs && vrows_printed < height )); do
+                    local seg_start=$(( seg_idx * visible_w ))
+                    local seg="${raw_line:$seg_start:$visible_w}"
+
+                    local ln_prefix=""
+                    if [[ "$show_line_numbers" == "true" ]]; then
+                        if (( seg_idx == 0 )); then
+                            ln_prefix="$(_ln_block "$buf_y")"
+                        else
+                            ln_prefix="$(_ln_block_cont)"
+                        fi
+                    fi
+
+                    local seg_has_cursor=false
+                    if [[ "$is_current" == "true" ]]; then
+                        if (( seg_idx < num_segs - 1 )); then
+                            (( cursor_x >= seg_start && cursor_x < seg_start + visible_w )) && seg_has_cursor=true
+                        else
+                            (( cursor_x >= seg_start )) && seg_has_cursor=true
+                        fi
+                    fi
+
+                    local line_content=""
+                    if [[ "$seg_has_cursor" == "true" ]]; then
+                        local rel_cursor=$(( cursor_x - seg_start ))
+                        local pre="${seg:0:$rel_cursor}"
+                        local char="${seg:$rel_cursor:1}"
+                        local post="${seg:$(( rel_cursor + 1 ))}"
+                        [[ -z "$char" ]] && char=" " && post=""
+
+                        if [[ $cursor_visible -eq 1 ]]; then
+                            line_content="${s_text}${pre}${s_cursor_on}${char}${reset}${cl_on}${s_text}${post}${reset}"
+                        else
+                            line_content="${s_text}${seg}${reset}"
+                        fi
+                    else
+                        line_content="${s_text}${seg}${reset}"
+                    fi
+
+                    frame+="${p_indent}${ln_prefix}${cl_on}${s_prompt}${prompt_char}${reset}${cl_on}${line_content}${cl_on}${ESC}[K${reset}${NL}"
+                    (( seg_idx++ ))
+                    (( vrows_printed++ ))
+                done
+                (( buf_y++ ))
+            done
+
+        else
+            for (( i=0; i<height; i++ )); do
+                local y=$(( scroll_y + i ))
+                local is_current=false
+                (( y == cursor_y )) && is_current=true
+
+                local cl_on=""
+                [[ "$cursorline" == "true" && "$is_current" == "true" ]] && cl_on="${s_cursorline}"
+
+                if (( y >= ${#BUFFER[@]} )); then
+                    local _tp=""
+                    [[ "$show_line_numbers" == "true" ]] && _tp="$(_ln_block_tilde)"
+                    frame+="${p_indent}${_tp}${cl_on}${s_prompt}${prompt_char}${reset}${cl_on}${ESC}[K${reset}${NL}"
+                    continue
+                fi
+
+                local raw_line="${BUFFER[$y]}"
+                local ln_prefix=""
+                [[ "$show_line_numbers" == "true" ]] && ln_prefix="$(_ln_block "$y")"
+                local line_content=""
+
+                if [[ "$is_current" == "true" ]]; then
+                    local vis_line="${raw_line:$scroll_x:$visible_w}"
+                    local rel_cursor=$(( cursor_x - scroll_x ))
+
+                    if [[ "$is_empty_buf" == "true" && -n "$placeholder" ]]; then
+                        local p_vis="${placeholder:0:$visible_w}"
+                        local p_first="${p_vis:0:1}"; local p_rest="${p_vis:1}"
+                        [[ -z "$p_first" ]] && p_first=" "
+                        if [[ $cursor_visible -eq 1 ]]; then
+                            line_content="${s_cursor_on}${p_first}${reset}${cl_on}${s_placeholder}${p_rest}${reset}"
+                        else
+                            line_content="${s_placeholder}${p_vis}${reset}"
+                        fi
+                    else
+                        local pre="${vis_line:0:$rel_cursor}"
+                        local char="${vis_line:$rel_cursor:1}"
+                        local post="${vis_line:$(( rel_cursor + 1 ))}"
+                        (( rel_cursor >= ${#vis_line} )) && char=" " && post=""
+
+                        if [[ $cursor_visible -eq 1 ]]; then
+                            line_content="${s_text}${pre}${s_cursor_on}${char}${reset}${cl_on}${s_text}${post}${reset}"
+                        else
+                            line_content="${s_text}${pre}${char}${post}${reset}"
+                        fi
+                    fi
+                else
+                    if [[ "$is_empty_buf" == "true" ]]; then
+                        line_content="${s_placeholder}${placeholder:0:$visible_w}${reset}"
+                    else
+                        line_content="${s_text}${raw_line:0:$visible_w}${reset}"
+                    fi
+                fi
+
+                frame+="${p_indent}${ln_prefix}${cl_on}${s_prompt}${prompt_char}${reset}${cl_on}${line_content}${cl_on}${ESC}[K${reset}${NL}"
+            done
+        fi
+
+        for (( _p=0; _p<p_pb; _p++ )); do frame+="${ESC}[K${NL}"; done
+
+        if [[ "$show_help_footer" == "true" ]]; then
+            for (( _p=0; _p<f_pt; _p++ )); do frame+="${ESC}[K${NL}"; done
+            frame+="${f_indent}${s_footer}${actual_footer}${reset}${ESC}[K${NL}"
+            for (( _p=0; _p<f_pb; _p++ )); do frame+="${ESC}[K${NL}"; done
+        fi
+
+        frame+="${ESC}[${total_lines}A"
+        printf '%s' "$frame" >&2
+    }
+
+    function _total_chars() {
+        local total=0
+        for line in "${BUFFER[@]}"; do (( total += ${#line} )); done
+        (( total += ${#BUFFER[@]} - 1 ))
+        printf '%s\n' "$total"
+    }
+
+    function _insert_char() {
+        local c="$1"
+        if [[ $char_limit -gt 0 ]]; then
+            local total; total=$(_total_chars)
+            (( total >= char_limit )) && return
+        fi
+        local line="${BUFFER[$cursor_y]}"
+        BUFFER[$cursor_y]="${line:0:$cursor_x}${c}${line:$cursor_x}"
+        (( cursor_x++ ))
+    }
+
+    local start_time
+    start_time=$(date +%s)
+    local blink_counter=0
+
     while true; do
-        draw
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
+        fi
 
-        IFS= read -rsn1 -t 0.5 key < /dev/tty
-        local exit_code=$?
+        local read_opts=("-rsn1" "-t" "0.05")
+        
+        if [[ $timeout -gt 0 ]]; then
+            local now=$(date +%s)
+            local remain=$(( timeout - (now - start_time) ))
+            if (( remain <= 0 )); then _clear_and_exit; return 124; fi
+        fi
 
-        if [[ $exit_code -ne 0 ]]; then
-            ((cursor_visible = 1 - cursor_visible))
-            echo -ne "${ESC}[${total_lines}A" >&2
+        IFS= read "${read_opts[@]}" key < /dev/tty
+        local _read_status=$?
+
+        if [[ $_interrupted -eq 1 ]]; then
+            _clear_and_exit
+            return 130
+        fi
+
+        if [[ $_read_status -ne 0 ]]; then
+            if [[ "$cursor_mode" == "blink" ]]; then
+                ((blink_counter++))
+                if (( blink_counter >= 10 )); then
+                    ((cursor_visible = 1 - cursor_visible))
+                    needs_redraw=true
+                    blink_counter=0
+                fi
+            fi
             continue
         fi
 
-        cursor_visible=1
-
-        
-        if [[ $key == $ESC ]]; then
-            read -rsn5 -t 0.01 seq < /dev/tty
-            
-            case "$seq" in
-                "[A") # Up
-                    ((cursor_y--))
-                    if ((cursor_y < 0)); then cursor_y=0; fi
-                    local len=${#BUFFER[$cursor_y]}
-                    if ((cursor_x > len)); then cursor_x=$len; fi
-                    ;;
-                "[B") # Down
-                    ((cursor_y++))
-                    local max_y=$((${#BUFFER[@]} - 1))
-                    if ((cursor_y > max_y)); then cursor_y=$max_y; fi
-                    local len=${#BUFFER[$cursor_y]}
-                    if ((cursor_x > len)); then cursor_x=$len; fi
-                    ;;
-                "[C") # Right
-                    local len=${#BUFFER[$cursor_y]}
-                    ((cursor_x++))
-                    if ((cursor_x > len)); then 
-                         if ((cursor_y < ${#BUFFER[@]} - 1)); then
-                             ((cursor_y++))
-                             cursor_x=0
-                         else
-                             cursor_x=$len 
-                         fi
-                    fi
-                    ;;
-                "[D") # Left
-                    ((cursor_x--))
-                    if ((cursor_x < 0)); then 
-                        if ((cursor_y > 0)); then
-                            ((cursor_y--))
-                            cursor_x=${#BUFFER[$cursor_y]}
-                        else
-                            cursor_x=0 
-                        fi
-                    fi
-                    ;;
-                "[3~") # Supr / Delete
-                    local current_line="${BUFFER[$cursor_y]}"
-                    local len=${#current_line}
-                    
-                    if (( cursor_x < len )); then
-                        local left="${current_line:0:cursor_x}"
-                        local right="${current_line:cursor_x+1}"
-                        BUFFER[$cursor_y]="${left}${right}"
-                    elif (( cursor_y < ${#BUFFER[@]} - 1 )); then
-                        local next_y=$((cursor_y + 1))
-                        local next_line="${BUFFER[$next_y]}"
-                        BUFFER[$cursor_y]="${current_line}${next_line}"
-                        
-                        BUFFER=("${BUFFER[@]:0:next_y}" "${BUFFER[@]:next_y+1}")
-                    fi
-                    ;;
-                "[H"|"[1~"|"[7~") 
-                    cursor_x=0
-                    ;;
-                "[F"|"[4~"|"[8~") 
-                    local len=${#BUFFER[$cursor_y]}
-                    cursor_x=$len
-                    ;;
-                "[5~") 
-                    ((cursor_y -= 5))
-                    if ((cursor_y < 0)); then cursor_y=0; fi
-                    local len=${#BUFFER[$cursor_y]}
-                    if ((cursor_x > len)); then cursor_x=$len; fi
-                    ;;
-                "[6~") 
-                    ((cursor_y += 5))
-                    local max_y=$((${#BUFFER[@]} - 1))
-                    if ((cursor_y > max_y)); then cursor_y=$max_y; fi
-                    local len=${#BUFFER[$cursor_y]}
-                    if ((cursor_x > len)); then cursor_x=$len; fi
-                    ;;
-            esac
-
-        elif [[ "$key" == $'\x04' ]]; then 
-            echo -ne "${ESC}[${total_lines}A${ESC}[J" >&2
-            tput cnorm >&2
-            for line in "${BUFFER[@]}"; do echo "$line"; done
-            return 0
-
-        elif [[ "$key" == $'\x03' ]]; then 
-            echo -ne "${ESC}[${total_lines}A${ESC}[J" >&2
-            tput cnorm >&2
-            return 130
-
-        elif [[ "$key" == "" ]]; then 
-            local current_line="${BUFFER[$cursor_y]}"
-            local left="${current_line:0:cursor_x}"
-            local right="${current_line:cursor_x}"
-            BUFFER[$cursor_y]="$left"
-            local next_y=$((cursor_y + 1))
-            BUFFER=("${BUFFER[@]:0:next_y}" "$right" "${BUFFER[@]:next_y}")
-            ((cursor_y++))
-            cursor_x=0
-
-        elif [[ "$key" == $'\x7f' || "$key" == $'\b' ]]; then 
-            local current_line="${BUFFER[$cursor_y]}"
-            
-            if (( cursor_x > 0 )); then
-                local left="${current_line:0:cursor_x-1}"
-                local right="${current_line:cursor_x}"
-                BUFFER[$cursor_y]="${left}${right}"
-                ((cursor_x--))
-            elif (( cursor_y > 0 )); then
-                local prev_y=$((cursor_y - 1))
-                local prev_line="${BUFFER[$prev_y]}"
-                local new_x=${#prev_line} 
-                BUFFER[$prev_y]="${prev_line}${current_line}"
-                BUFFER=("${BUFFER[@]:0:cursor_y}" "${BUFFER[@]:cursor_y+1}")
-                cursor_y=$prev_y
-                cursor_x=$new_x
-            fi
-
-        elif [[ "$key" =~ [[:print:]] ]]; then
-            local current_line="${BUFFER[$cursor_y]}"
-            local left="${current_line:0:cursor_x}"
-            local right="${current_line:cursor_x}"
-            BUFFER[$cursor_y]="${left}${key}${right}"
-            ((cursor_x++))
+        needs_redraw=true
+        blink_counter=0
+        if [[ "$cursor_mode" == "blink" ]]; then
+            cursor_visible=1
         fi
 
-        echo -ne "${ESC}[${total_lines}A" >&2
+        case "$key" in
+            $'\x04') 
+                _clear_and_exit
+                for line in "${BUFFER[@]}"; do printf '%s\n' "$line"; done
+                return 0
+                ;;
+            $'\x03') 
+                _clear_and_exit
+                return 130
+                ;;
+            $'\x1b')
+                local c1="" c2="" c3="" seq=""
+                
+                IFS= read -rsn1 -t 0.15 c1 < /dev/tty || true
+                if [[ -z "$c1" ]]; then
+                    continue
+                fi
+
+                if [[ "$c1" == "[" || "$c1" == "O" ]]; then
+                    IFS= read -rsn1 -t 0.15 c2 < /dev/tty || true
+                    if [[ -z "$c2" ]]; then
+                        continue
+                    fi
+
+                    seq="${c1}${c2}"
+                    
+                    if [[ "$c2" =~ [0-9] ]]; then
+                        IFS= read -rsn1 -t 0.15 c3 < /dev/tty || true
+                        seq="${seq}${c3}"
+                    fi
+
+                    case "$seq" in
+                        "[A"|"OA") 
+                            (( cursor_y-- ))
+                            (( cursor_y < 0 )) && cursor_y=0
+                            local len=${#BUFFER[$cursor_y]}
+                            (( cursor_x > len )) && cursor_x=$len
+                            scroll_x=0 ;;
+                        "[B"|"OB") 
+                            (( cursor_y++ ))
+                            local max_y=$(( ${#BUFFER[@]} - 1 ))
+                            (( cursor_y > max_y )) && cursor_y=$max_y
+                            local len=${#BUFFER[$cursor_y]}
+                            (( cursor_x > len )) && cursor_x=$len
+                            scroll_x=0 ;;
+                        "[C"|"OC") 
+                            local len=${#BUFFER[$cursor_y]}
+                            (( cursor_x++ ))
+                            if (( cursor_x > len )); then
+                                if (( cursor_y < ${#BUFFER[@]} - 1 )); then
+                                    (( cursor_y++ )); cursor_x=0; scroll_x=0
+                                else
+                                    cursor_x=$len
+                                fi
+                            fi ;;
+                        "[D"|"OD") 
+                            (( cursor_x-- ))
+                            if (( cursor_x < 0 )); then
+                                if (( cursor_y > 0 )); then
+                                    (( cursor_y-- )); cursor_x=${#BUFFER[$cursor_y]}; scroll_x=0
+                                else
+                                    cursor_x=0
+                                fi
+                            fi ;;
+                        "[H"|"[1~"|"[7~"|"OH") cursor_x=0; scroll_x=0 ;;
+                        "[F"|"[4~"|"[8~"|"OF") cursor_x=${#BUFFER[$cursor_y]} ;;
+                        "[3~") 
+                            local line="${BUFFER[$cursor_y]}"
+                            if (( cursor_x < ${#line} )); then
+                                BUFFER[$cursor_y]="${line:0:$cursor_x}${line:$(( cursor_x + 1 ))}"
+                            elif (( cursor_y < ${#BUFFER[@]} - 1 )); then
+                                local next_y=$(( cursor_y + 1 ))
+                                BUFFER[$cursor_y]="${line}${BUFFER[$next_y]}"
+                                BUFFER=("${BUFFER[@]:0:$next_y}" "${BUFFER[@]:$(( next_y + 1 ))}")
+                            fi ;;
+                        "[5~")
+                            (( cursor_y -= height ))
+                            (( cursor_y < 0 )) && cursor_y=0
+                            local len=${#BUFFER[$cursor_y]}
+                            (( cursor_x > len )) && cursor_x=$len ;;
+                        "[6~") 
+                            (( cursor_y += height ))
+                            local max_y=$(( ${#BUFFER[@]} - 1 ))
+                            (( cursor_y > max_y )) && cursor_y=$max_y
+                            local len=${#BUFFER[$cursor_y]}
+                            (( cursor_x > len )) && cursor_x=$len ;;
+                    esac
+                fi
+                ;;
+            $'\x01') 
+                cursor_x=0; scroll_x=0 ;;
+            $'\x05') 
+                cursor_x=${#BUFFER[$cursor_y]} ;;
+            $'\x0b') 
+                local line="${BUFFER[$cursor_y]}"
+                if (( cursor_x < ${#line} )); then
+                    BUFFER[$cursor_y]="${line:0:$cursor_x}"
+                elif (( cursor_y < ${#BUFFER[@]} - 1 )); then
+                    local next_y=$(( cursor_y + 1 ))
+                    BUFFER[$cursor_y]="${line}${BUFFER[$next_y]}"
+                    BUFFER=("${BUFFER[@]:0:$next_y}" "${BUFFER[@]:$(( next_y + 1 ))}")
+                fi ;;
+            $'\x15') 
+                BUFFER[$cursor_y]=""; cursor_x=0; scroll_x=0 ;;
+            $'\t') 
+                for ((i=0; i<tab_size; i++)); do _insert_char " "; done ;;
+            $'\x7f'|$'\b') 
+                local line="${BUFFER[$cursor_y]}"
+                if (( cursor_x > 0 )); then
+                    BUFFER[$cursor_y]="${line:0:$(( cursor_x - 1 ))}${line:$cursor_x}"
+                    (( cursor_x-- ))
+                elif (( cursor_y > 0 )); then
+                    local prev_y=$(( cursor_y - 1 ))
+                    local prev_line="${BUFFER[$prev_y]}"
+                    local new_x=${#prev_line}
+                    BUFFER[$prev_y]="${prev_line}${line}"
+                    BUFFER=("${BUFFER[@]:0:$cursor_y}" "${BUFFER[@]:$(( cursor_y + 1 ))}")
+                    cursor_y=$prev_y; cursor_x=$new_x; scroll_x=0
+                    [[ "$show_line_numbers" == "true" ]] && _update_ln_width
+                fi ;;
+            ""|$'\x0a'|$'\x0d') 
+                local line="${BUFFER[$cursor_y]}"
+                local left="${line:0:$cursor_x}"; local right="${line:$cursor_x}"
+                BUFFER[$cursor_y]="$left"
+                local next_y=$(( cursor_y + 1 ))
+                BUFFER=("${BUFFER[@]:0:$next_y}" "$right" "${BUFFER[@]:$next_y}")
+                (( cursor_y++ )); cursor_x=0; scroll_x=0
+                [[ "$show_line_numbers" == "true" ]] && _update_ln_width ;;
+            *)
+                if [[ "$key" =~ [[:print:]] ]]; then
+                    _insert_char "$key"
+                fi
+                ;;
+        esac
     done
 }
 

@@ -1,109 +1,285 @@
 #!/usr/bin/env bash
 
 function cmd_pager() {
-    
+    local ESC=$'\e'
+    local NL=$'\n'
+    local CR=$'\r'
+
     local has_bat=false
     if command -v bat &>/dev/null; then has_bat=true; fi
 
+    local has_pcre=false
+    if echo "" | grep -qP "" 2>/dev/null; then has_pcre=true; fi
+
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
+
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0 
+        local -r ESC_CHAR=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) case "$c" in
+                       "$ESC_CHAR") state=1 ;;
+                       "$BEL") : ;;
+                       *) out+="$c" ;;
+                   esac ;;
+                1) case "$c" in
+                       '[') state=2 ;;
+                       ']') state=3 ;;
+                       '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                       "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>') state=0 ;;
+                       *) out+="${ESC_CHAR}${c}"; state=0 ;;
+                   esac ;;
+                2) case "$c" in
+                       ';'|'?'|[0-9]) : ;;
+                       *) state=0 ;;
+                   esac ;;
+                3) case "$c" in
+                       [0-9]) state=4 ;;
+                       *) state=0 ;;
+                   esac ;;
+                4) case "$c" in
+                       "$BEL") state=0 ;;
+                       "$ESC_CHAR") state=5 ;;
+                   esac ;;
+                5) state=0 ;;
+            esac
+        done
+        printf '%s' "$out"
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function _list_color_names() {
+        _css_init
+        printf '%s\n' "${!_CSS_COLORS[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+    function strict_bool() {
+        local val="${1,,}"
+        case "$val" in
+            true|1|yes) printf "true" ;;
+            false|0|no) printf "false" ;;
+            *) printf "INVALID" ;;
+        esac
+    }
+
+    function _color_seq() {
+        local val="${1,,}" layer="$2"
+        [[ -z "$val" || "$val" == "none" || "$val" == "clear" ]] && return
+        if [[ "$val" == \#* ]]; then
+            local hex="${val#\#}"
+            [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+            local r=$(( 16#${hex:0:2} ))
+            local g=$(( 16#${hex:2:2} ))
+            local b=$(( 16#${hex:4:2} ))
+            printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+        elif [[ "$val" =~ ^[0-9]+$ ]]; then
+            printf "${ESC}[%d;5;%dm" "$layer" "$val"
+        else
+            local base=0
+            [[ "$layer" == 38 ]] && base=30
+            [[ "$layer" == 48 ]] && base=40
+            case "$val" in
+                black)                 printf "${ESC}[%dm" $((base + 0)) ;;
+                red)                   printf "${ESC}[%dm" $((base + 1)) ;;
+                green)                 printf "${ESC}[%dm" $((base + 2)) ;;
+                yellow)                printf "${ESC}[%dm" $((base + 3)) ;;
+                blue)                  printf "${ESC}[%dm" $((base + 4)) ;;
+                magenta|purple)        printf "${ESC}[%dm" $((base + 5)) ;;
+                cyan)                  printf "${ESC}[%dm" $((base + 6)) ;;
+                white)                 printf "${ESC}[%dm" $((base + 7)) ;;
+                gray|grey|brightblack) printf "${ESC}[%dm" $((base + 60)) ;;
+                brightred)             printf "${ESC}[%dm" $((base + 61)) ;;
+                brightgreen)           printf "${ESC}[%dm" $((base + 62)) ;;
+                brightyellow)          printf "${ESC}[%dm" $((base + 63)) ;;
+                brightblue)            printf "${ESC}[%dm" $((base + 64)) ;;
+                brightmagenta|brightpurple) printf "${ESC}[%dm" $((base + 65)) ;;
+                brightcyan)            printf "${ESC}[%dm" $((base + 66)) ;;
+                brightwhite)           printf "${ESC}[%dm" $((base + 67)) ;;
+                *)
+                    _css_init
+                    local css_hex="${_CSS_COLORS[$val]:-}"
+                    if [[ -n "$css_hex" ]]; then
+                        local r=$(( 16#${css_hex:0:2} ))
+                        local g=$(( 16#${css_hex:2:2} ))
+                        local b=$(( 16#${css_hex:4:2} ))
+                        printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+                    fi
+                    ;;
+            esac
+        fi
+    }
+
+    function _mode_seq() {
+        case "$1" in 
+            bold)      printf "${ESC}[1m" ;; 
+            dim)       printf "${ESC}[2m" ;; 
+            italic)    printf "${ESC}[3m" ;; 
+            underline) printf "${ESC}[4m" ;; 
+            blink)     printf "${ESC}[5m" ;; 
+            reverse)   printf "${ESC}[7m" ;; 
+            strike)    printf "${ESC}[9m" ;; 
+        esac
+    }
+
+    function make_ansi() {
+        local fg="$1" bg="$2"
+        _color_seq "$fg" 38
+        _color_seq "$bg" 48
+    }
+
     function show_usage() {
-        function p_opt() { printf "  %-42s %s\n" "$1" "$2"; }
-        function p_sec() { printf "\n%s\n" "$1"; }
-
         cat <<EOF
-Usage: bash-utils [<file>] [flags]
+Usage: bash-utils pager [<file>] [flags]
 
-A robust, boxed file pager (TTY Safe Edition).
+A robust, boxed file pager with Integrated Search.
 
 Arguments:
   [<file>]                                   The file to display (stdin if empty)
 
 Flags:
+  -h, --help                                 Show context-sensitive help.
+      --[no-]show-line-numbers               Show line numbers.
+      --[no-]soft-wrap                       Soft wrap lines (Default: true).
+      --[no-]plain                           Treat content as plain text (no ANSI).
+      --[no-]pcre                            Use PCRE regex in search (default: auto, requires grep -P).
+      --timeout=0                            Timeout until command exits (e.g. 5s).
+      --cursor.mode="blink"                  Search cursor mode (blink, hide, static).
+      --input.type="normal"                  Search input style: normal (inline footer) or floating (popup box).
+      --input.width=42                       Width of the floating input box, in chars (only used if floating).
+      --floatinginput.title=""               Title text on the floating input box border (only used if floating).
+      --floatinginput.align="center"         Floating input title align: left, center, right.
+      --floatinginput.title.foreground=""    Floating input title foreground (default: border foreground).
+      --floatinginput.title.background=""    Floating input title background (default: border background).
+      --floatinginput.title.bold             Bold the floating input title.
+      --floatinginput.title.italic           Italicize the floating input title.
+      --floatinginput.title.underline        Underline the floating input title.
+      --floatinginput.title.strike           Strike-through the floating input title.
+      --floatinginput.title.blink            Blink the floating input title.
+      --floatinginput.title.reverse          Reverse-video the floating input title.
+
+Layout & Window
+      --title=""                             Window title text.
+      --title.align="center"                 Align: left, center, right.
+      --border="rounded"                     Style: rounded, normal, double, thick, hidden.
+      --search.prompt="/ "                   Prompt string for search.
+      --search.placeholder="Search..."       Placeholder text for search.
+
+Style Flags (Colors accept a name (incl. CSS names like 'coral'), #HEX, or 0-255)
+      --foreground=""                        Global text foreground.
+      --background=""                        Global text background.
+      --border.foreground="238"              Border foreground.
+      --title.foreground=""                  Title foreground.
+      --line-number.foreground="237"         Line number foreground.
+      --separator.foreground="238"           Separator foreground.
+      --footer.foreground="241"              Footer foreground.
+      --match.foreground="212"               Search match text.
+      --match.background=""                  Search match background.
+      --match-highlight.foreground="235"     Current match text.
+      --match-highlight.background="225"     Current match background.
+      --empty.foreground="237"               Empty line tilde (~) color.
+      
+      --search.prompt.foreground="212"       Search prompt text color.
+      --search.text.foreground=""            Search typing text color.
+      --search.cursor.foreground="235"       Search cursor text color.
+      --search.cursor.background="212"       Search cursor background color.
+      --search.placeholder.foreground="240"  Search placeholder color.
 EOF
-        p_opt "-h, --help" "Show context-sensitive help."
-        p_opt "    --show-line-numbers" "Show line numbers."
-        p_opt "    --[no-]soft-wrap" "Soft wrap lines (Default: true)."
-        p_opt "    --plain" "Treat content as plain text (no ANSI)."
-        p_opt "    --timeout=0" "Timeout until command exits (e.g. 5s)."
-        p_opt "    --scroll-step=1" "Lines to scroll per tick."
-        p_opt "    --tab-width=4" "Number of spaces per tab."
-
-        p_sec "Layout & Window"
-        p_opt "    --title=\"\"" "Window title text."
-        p_opt "    --title.align=\"center\"" "Align: left, center, right."
-        p_opt "    --border=\"rounded\"" "Style: rounded, normal, double, thick, hidden."
-        p_opt "    --separator=\"│\"" "Character for the vertical separator."
-        p_opt "    --line-number.pad=\"0 1\"" "Padding (Left Right) for numbers."
-        p_opt "    --separator.pad=\"1 1\"" "Padding (Left Right) for separator."
-
-        if [[ "$has_bat" == "true" ]]; then
-            p_sec "Bat Integration"
-            p_opt "    --theme=\"\"" "Bat syntax theme."
-            p_opt "    --language=\"\"" "Force specific language syntax."
-        fi
-
-        p_sec "Style Flags (Colors: Hex, RGB 'r;g;b', ANSI)"
-        p_opt "    --foreground=\"\"" "Global text foreground."
-        p_opt "    --background=\"\"" "Global text background."
-        p_opt "    --border.foreground=\"238\"" "Border foreground."
-        p_opt "    --border.background=\"\"" "Border background."
-        p_opt "    --title.foreground=\"\"" "Title foreground."
-        p_opt "    --title.background=\"\"" "Title background."
-        p_opt "    --line-number.foreground=\"237\"" "Line number foreground."
-        p_opt "    --line-number.background=\"\"" "Line number background."
-        p_opt "    --separator.foreground=\"238\"" "Separator foreground."
-        p_opt "    --separator.background=\"\"" "Separator background."
-        p_opt "    --footer.foreground=\"241\"" "Footer foreground."
-        p_opt "    --footer.background=\"\"" "Footer background."
-        p_opt "    --match.foreground=\"212\"" "Search match text."
-        p_opt "    --match.background=\"\"" "Search match background."
-        p_opt "    --match-highlight.foreground=\"235\"" "Current match text."
-        p_opt "    --match-highlight.background=\"225\"" "Current match background."
-        p_opt "    --help.foreground=\"\"" "Help text foreground."
-        p_opt "    --empty.foreground=\"237\"" "Empty line tilde (~) color."
-
-        p_sec "Style Modes (Suffixes)"
-        echo "  Apply to any element (e.g. --border.bold, --title.italic):"
-        echo "  .bold, .dim, .italic, .underline, .blink, .reverse"
-        echo ""
     }
 
-    function get_style_seq() {
-        local type="$1"; local code="$2"
-        if [[ -z "$code" ]]; then echo ""; return; fi
-        
-        local rgb_regex="^[0-9]{1,3};[0-9]{1,3};[0-9]{1,3}$"
-        case "$type" in
-            mode) case "$code" in 
-                    bold) echo -ne "\033[1m";; 
-                    dim) echo -ne "\033[2m";; 
-                    italic) echo -ne "\033[3m";; 
-                    underline) echo -ne "\033[4m";; 
-                    blink) echo -ne "\033[5m";; 
-                    reverse) echo -ne "\033[7m";; 
-                    strike) echo -ne "\033[9m";; 
-                  esac ;;
-            fg|bg)
-                local prefix="38"; [[ "$type" == "bg" ]] && prefix="48"
-                if [[ "$code" =~ $rgb_regex ]]; then echo -ne "\033[${prefix};2;${code}m"
-                elif [[ "$code" =~ ^[0-9]+$ ]]; then echo -ne "\033[${prefix};5;${code}m"
-                fi ;;
-        esac
-    }
-
+    # ─── DEFAULTS ───
     local show_line_numbers=false
     local wrap_text=true
     local plain_mode=false
+    local use_pcre="$has_pcre"   
     local timeout_sec=0
     local input_file=""
     local original_filename=""
-    local show_help=false
     local scroll_step=1
     local tab_width=4
+    local cursor_mode="blink"
     
     local title_raw=""
     local title_align="center" 
     local border_style="rounded"
     local separator_char="│"
+
+    local search_prompt_char="/ "
+    local search_placeholder="Search..."
 
     local bat_theme=""
     local bat_lang=""
@@ -112,136 +288,230 @@ EOF
     local pad_num_l=0; local pad_num_r=1
     local pad_sep_l=1; local pad_sep_r=1
 
-    local modes_text=""
-    local c_text_fg="" c_text_bg=""
+    local modes_text="" c_text_fg="" c_text_bg=""
+    local modes_num="" c_num_fg="237" c_num_bg=""
+    local modes_border="" c_border_fg="238" c_border_bg=""
+    local modes_title="" c_title_fg="" c_title_bg=""
+    local modes_sep="" c_sep_fg="238" c_sep_bg=""
+    local modes_footer="" c_footer_fg="241" c_footer_bg=""
     
-    local modes_num=""
-    local c_num_fg=$(get_style_seq "fg" "237") c_num_bg=""
-    
-    local modes_border=""
-    local c_border_fg=$(get_style_seq "fg" "238") c_border_bg=""
-    
-    local modes_title=""
-    local c_title_fg="" c_title_bg=""
-    
-    local modes_sep=""
-    local c_sep_fg=$(get_style_seq "fg" "238") c_sep_bg=""
-    
-    local modes_footer=""
-    local c_footer_fg=$(get_style_seq "fg" "241") c_footer_bg=""
-    
-    local c_empty_fg=$(get_style_seq "fg" "237")
-    local c_match_fg=$(get_style_seq "fg" "212") c_match_bg=""
-    local c_match_hi_fg=$(get_style_seq "fg" "235") c_match_hi_bg=$(get_style_seq "bg" "225")
-    local c_error_fg=$(get_style_seq "fg" "196")
+    local c_search_prompt_fg="212" c_search_prompt_bg=""
+    local c_search_text_fg="" c_search_text_bg=""
+    local c_search_cursor_fg="235" c_search_cursor_bg="212"
+    local c_search_place_fg="240" c_search_place_bg=""
+
+    local c_empty_fg="237"
+    local c_match_fg="212" c_match_bg=""
+    local c_match_hi_fg="235" c_match_hi_bg="225"
+    local c_error_fg="196"
+
+    local input_type="normal"
+    local input_width=42
+
+    local floating_title_raw=""
+    local floating_title_align="center"
+    local modes_floating_title="" c_floating_title_fg="" c_floating_title_bg=""
 
     local args_files=()
+    local parse_args=()
+
     while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --help|-h)           show_usage; return 0 ;;
-            --show-line-numbers) show_line_numbers=true; shift ;;
-            --soft-wrap)         wrap_text=true; shift ;;
-            --no-soft-wrap)      wrap_text=false; shift ;;
-            --plain)             plain_mode=true; shift ;;
-            --timeout=*)         timeout_sec="${1#*=}"; shift ;;
-            --scroll-step=*)     scroll_step="${1#*=}"; shift ;;
-            --tab-width=*)       tab_width="${1#*=}"; shift ;;
+        if [[ "$1" == --*=* ]]; then
+            parse_args+=("${1%%=*}" "${1#*=}")
+        else
+            parse_args+=("$1")
+        fi
+        shift
+    done
+    set -- "${parse_args[@]}"
 
-            --line-number.pad=*) 
-                read -r pad_num_l pad_num_r <<< "${1#*=}"
-                [[ -z "$pad_num_l" ]] && pad_num_l=0; [[ -z "$pad_num_r" ]] && pad_num_r=0
-                shift ;;
-            --separator.pad=*)   
-                read -r pad_sep_l pad_sep_r <<< "${1#*=}"
-                [[ -z "$pad_sep_l" ]] && pad_sep_l=0; [[ -z "$pad_sep_r" ]] && pad_sep_r=0
-                shift ;;
+    while [[ $# -gt 0 ]]; do
+        local key="$1"
+        local val=""
+        local has_val="false"
 
-            --title=*)           title_raw="${1#*=}"; shift ;;
-            --title.align=*)     title_align="${1#*=}"; shift ;;
-            --border=*)          border_style="${1#*=}"; shift ;;
-            --separator)         separator_char="$2"; shift 2 ;;
-            --separator=*)       separator_char="${1#*=}"; shift ;;
+        if [[ "$key" =~ ^--floatinginput\.title\.(bold|dim|italic|underline|blink|reverse|strike)$ ]]; then
+            local prop="${BASH_REMATCH[1]}"
 
-            --theme=*)           bat_theme="${1#*=}"; shift ;;
-            --language=*)        bat_lang="${1#*=}"; shift ;;
+            if [[ $# -ge 2 && ! "$2" == --* ]]; then
+                val=$(strict_bool "$2")
+                [[ "$val" == "INVALID" ]] && die "Valor booleano inválido en '${key}'. Recibido: '$2'. Literales: true, false, yes, no."
+                shift
+            else
+                val="true"
+            fi
 
-            --foreground=*)      c_text_fg=$(get_style_seq "fg" "${1#*=}"); manual_color_set=true; shift ;;
-            --background=*)      c_text_bg=$(get_style_seq "bg" "${1#*=}"); manual_color_set=true; shift ;;
-            --bold)              modes_text+=$(get_style_seq "mode" "bold"); shift ;;
-            --dim)               modes_text+=$(get_style_seq "mode" "dim"); shift ;;
-            --italic)            modes_text+=$(get_style_seq "mode" "italic"); shift ;;
-            --underline)         modes_text+=$(get_style_seq "mode" "underline"); shift ;;
+            if [[ "$val" == "true" ]]; then
+                modes_floating_title+="$(_mode_seq "$prop")"
+            fi
+            shift; continue
+        fi
+
+        if [[ "$key" =~ ^--(border|title|line-number|separator|footer|text)\.(bold|dim|italic|underline|blink|reverse|strike)$ ]]; then
+            local comp="${BASH_REMATCH[1]}"
+            local prop="${BASH_REMATCH[2]}"
+            [[ "$comp" == "line-number" ]] && comp="num"
+            [[ "$comp" == "separator" ]] && comp="sep"
             
-            --border.foreground=*) c_border_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --border.background=*) c_border_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            --border.bold)         modes_border+=$(get_style_seq "mode" "bold"); shift ;;
-            --border.dim)          modes_border+=$(get_style_seq "mode" "dim"); shift ;;
-            --border.italic)       modes_border+=$(get_style_seq "mode" "italic"); shift ;;
-            --border.underline)    modes_border+=$(get_style_seq "mode" "underline"); shift ;;
+            if [[ $# -ge 2 && ! "$2" == --* ]]; then 
+                val=$(strict_bool "$2")
+                [[ "$val" == "INVALID" ]] && die "Valor booleano inválido en '${key}'. Recibido: '$2'. Literales: true, false, yes, no."
+                shift
+            else 
+                val="true"
+            fi
             
-            --title.foreground=*) c_title_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --title.background=*) c_title_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            --title.bold)         modes_title+=$(get_style_seq "mode" "bold"); shift ;;
-            --title.dim)          modes_title+=$(get_style_seq "mode" "dim"); shift ;;
-            --title.italic)       modes_title+=$(get_style_seq "mode" "italic"); shift ;;
-            --title.underline)    modes_title+=$(get_style_seq "mode" "underline"); shift ;;
-            --title.reverse)      modes_title+=$(get_style_seq "mode" "reverse"); shift ;;
+            if [[ "$val" == "true" ]]; then
+                eval "modes_${comp}+=\$( _mode_seq \"$prop\" )"
+            fi
+            shift; continue
+        fi
+
+        case "$key" in
+            -h|--help)                 show_usage; return 0 ;;
+            --show-line-numbers)       show_line_numbers=true; shift; continue ;;
+            --no-show-line-numbers)    show_line_numbers=false; shift; continue ;;
+            --soft-wrap)               wrap_text=true; shift; continue ;;
+            --no-soft-wrap)            wrap_text=false; shift; continue ;;
+            --plain)                   plain_mode=true; shift; continue ;;
+            --no-plain)                plain_mode=false; shift; continue ;;
+            --pcre)
+                if [[ "$has_pcre" == "false" ]]; then
+                    die "PCRE no disponible: grep en este sistema no soporta '-P'."
+                fi
+                use_pcre=true; shift; continue ;;
+            --no-pcre)                 use_pcre=false; shift; continue ;;
             
-            --line-number.foreground=*) c_num_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --line-number.background=*) c_num_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            --line-number.bold)         modes_num+=$(get_style_seq "mode" "bold"); shift ;;
-            --line-number.dim)          modes_num+=$(get_style_seq "mode" "dim"); shift ;;
-            --line-number.italic)       modes_num+=$(get_style_seq "mode" "italic"); shift ;;
-            --line-number.underline)    modes_num+=$(get_style_seq "mode" "underline"); shift ;;
+            --timeout|--scroll-step|--tab-width|--title|--title.align|--border|--separator|--theme|--language|--line-number.pad|--separator.pad|--foreground|--background|--border.foreground|--border.background|--title.foreground|--title.background|--line-number.foreground|--line-number.background|--separator.foreground|--separator.background|--footer.foreground|--footer.background|--match.foreground|--match.background|--match-highlight.foreground|--match-highlight.background|--help.foreground|--empty.foreground|--cursor.mode|--input.type|--input.width|--search.prompt|--search.placeholder|--search.prompt.foreground|--search.prompt.background|--search.text.foreground|--search.text.background|--search.cursor.foreground|--search.cursor.background|--search.placeholder.foreground|--search.placeholder.background|--floatinginput.title|--floatinginput.align|--floatinginput.title.foreground|--floatinginput.title.background)
+                if [[ $# -lt 2 || "$2" == --* ]]; then 
+                    die "La bandera '${key}' requiere un valor asignado."
+                fi
+                val="$2"
+                shift 2
+                
+                case "$key" in
+                    --timeout|--scroll-step|--tab-width)
+                        val="${val%s}"
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '${key}' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        [[ "$key" == "--timeout" ]] && timeout_sec="$val"
+                        [[ "$key" == "--scroll-step" ]] && scroll_step="$val"
+                        [[ "$key" == "--tab-width" ]] && tab_width="$val"
+                        ;;
+                    --line-number.pad|--separator.pad)
+                        [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+)?$ ]] && die "Padding inválido en '${key}'. Recibido: '${val}'. Literal esperado: 'Left Right'."
+                        if [[ "$key" == "--line-number.pad" ]]; then read -r pad_num_l pad_num_r <<< "$val"; fi
+                        if [[ "$key" == "--separator.pad" ]]; then read -r pad_sep_l pad_sep_r <<< "$val"; fi
+                        ;;
+                    --border)
+                        case "${val,,}" in
+                            rounded|normal|double|thick|hidden) border_style="${val,,}" ;;
+                            *) die "Borde inválido. Literales: rounded, normal, double, thick, hidden." ;;
+                        esac ;;
+                    --title.align)
+                        case "${val,,}" in
+                            left|center|right) title_align="${val,,}" ;;
+                            *) die "Alineación inválida. Literales: left, center, right." ;;
+                        esac ;;
+                    --floatinginput.align)
+                        case "${val,,}" in
+                            left|center|right) floating_title_align="${val,,}" ;;
+                            *) die "Alineación inválida para '--floatinginput.align'. Literales: left, center, right." ;;
+                        esac ;;
+                    --cursor.mode)
+                        case "${val,,}" in
+                            blink|hide|static) cursor_mode="${val,,}" ;;
+                            *) die "Valor para '--cursor.mode' inválido." ;;
+                        esac ;;
+                    --input.type)
+                        case "${val,,}" in
+                            normal|floating) input_type="${val,,}" ;;
+                            *) die "Valor para '--input.type' inválido. Recibido: '${val}'. Literales: normal, floating." ;;
+                        esac ;;
+                    --input.width)
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '--input.width' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        input_width="$val" ;;
+                    --title) title_raw="$val" ;;
+                    --floatinginput.title) floating_title_raw="$val" ;;
+                    --separator) separator_char="$val" ;;
+                    --theme) bat_theme="$val" ;;
+                    --language) bat_lang="$val" ;;
+                    --search.prompt) search_prompt_char="$val" ;;
+                    --search.placeholder) search_placeholder="$val" ;;
+
+                    --foreground|--background|--border.foreground|--border.background|--title.foreground|--title.background|--line-number.foreground|--line-number.background|--separator.foreground|--separator.background|--footer.foreground|--footer.background|--match.foreground|--match.background|--match-highlight.foreground|--match-highlight.background|--help.foreground|--empty.foreground|--search.prompt.foreground|--search.prompt.background|--search.text.foreground|--search.text.background|--search.cursor.foreground|--search.cursor.background|--search.placeholder.foreground|--search.placeholder.background|--floatinginput.title.foreground|--floatinginput.title.background)
+                        if ! is_valid_color "$val"; then
+                            die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                        fi
+                        case "$key" in
+                            --foreground) c_text_fg="$val"; manual_color_set=true ;;
+                            --background) c_text_bg="$val"; manual_color_set=true ;;
+                            --border.foreground) c_border_fg="$val" ;;
+                            --border.background) c_border_bg="$val" ;;
+                            --title.foreground) c_title_fg="$val" ;;
+                            --title.background) c_title_bg="$val" ;;
+                            --floatinginput.title.foreground) c_floating_title_fg="$val" ;;
+                            --floatinginput.title.background) c_floating_title_bg="$val" ;;
+                            --line-number.foreground) c_num_fg="$val" ;;
+                            --line-number.background) c_num_bg="$val" ;;
+                            --separator.foreground) c_sep_fg="$val" ;;
+                            --separator.background) c_sep_bg="$val" ;;
+                            --footer.foreground) c_footer_fg="$val" ;;
+                            --footer.background) c_footer_bg="$val" ;;
+                            --help.foreground) c_footer_fg="$val" ;;
+                            --match.foreground) c_match_fg="$val" ;;
+                            --match.background) c_match_bg="$val" ;;
+                            --match-highlight.foreground) c_match_hi_fg="$val" ;;
+                            --match-highlight.background) c_match_hi_bg="$val" ;;
+                            --empty.foreground) c_empty_fg="$val" ;;
+                            --search.prompt.foreground) c_search_prompt_fg="$val" ;;
+                            --search.prompt.background) c_search_prompt_bg="$val" ;;
+                            --search.text.foreground) c_search_text_fg="$val" ;;
+                            --search.text.background) c_search_text_bg="$val" ;;
+                            --search.cursor.foreground) c_search_cursor_fg="$val" ;;
+                            --search.cursor.background) c_search_cursor_bg="$val" ;;
+                            --search.placeholder.foreground) c_search_place_fg="$val" ;;
+                            --search.placeholder.background) c_search_place_bg="$val" ;;
+                        esac
+                        ;;
+                esac
+                ;;
             
-            --separator.foreground=*)   c_sep_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --separator.background=*)   c_sep_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            --separator.bold)           modes_sep+=$(get_style_seq "mode" "bold"); shift ;;
-            --separator.dim)            modes_sep+=$(get_style_seq "mode" "dim"); shift ;;
-            --separator.italic)         modes_sep+=$(get_style_seq "mode" "italic"); shift ;;
-            --separator.underline)      modes_sep+=$(get_style_seq "mode" "underline"); shift ;;
-            --separator.reverse)        modes_sep+=$(get_style_seq "mode" "reverse"); shift ;;
-            
-            --footer.foreground=*)      c_footer_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --footer.background=*)      c_footer_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            --footer.bold)              modes_footer+=$(get_style_seq "mode" "bold"); shift ;;
-            --footer.dim)               modes_footer+=$(get_style_seq "mode" "dim"); shift ;;
-            --footer.italic)            modes_footer+=$(get_style_seq "mode" "italic"); shift ;;
-            --footer.underline)         modes_footer+=$(get_style_seq "mode" "underline"); shift ;;
-            
-            --help.foreground=*)        c_footer_fg=$(get_style_seq "fg" "${1#*=}"); shift ;; 
-            --empty.foreground=*)       c_empty_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            
-            --match.foreground=*)            c_match_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --match.background=*)            c_match_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            --match-highlight.foreground=*) c_match_hi_fg=$(get_style_seq "fg" "${1#*=}"); shift ;;
-            --match-highlight.background=*) c_match_hi_bg=$(get_style_seq "bg" "${1#*=}"); shift ;;
-            
-            -*) echo "Error: Unknown flag '$1'" >&2; echo "Run with --help for usage." >&2; return 1 ;;
-            *)  args_files+=("$1"); shift ;;
+            -*) die "Bandera desconocida o no soportada: '${key}'. Usa '--help'." ;;
+            *)  args_files+=("$key"); shift ;;
         esac
     done
 
-    if [[ ! "$border_style" =~ ^(rounded|normal|double|thick|hidden)$ ]]; then
-        echo "Error: Invalid border style '$border_style'." >&2
-        echo "Valid options: rounded, normal, double, thick, hidden." >&2
-        return 1
-    fi
-
-    if [[ ! "$title_align" =~ ^(left|center|right)$ ]]; then
-        echo "Error: Invalid title alignment '$title_align'." >&2
-        echo "Valid options: left, center, right." >&2
-        return 1
-    fi
-
+    [[ -z "$pad_num_l" ]] && pad_num_l=0; [[ -z "$pad_num_r" ]] && pad_num_r=0
+    [[ -z "$pad_sep_l" ]] && pad_sep_l=0; [[ -z "$pad_sep_r" ]] && pad_sep_r=0
     [[ -z "$c_title_fg" ]] && c_title_fg="$c_border_fg"
     [[ -z "$c_title_bg" ]] && c_title_bg="$c_border_bg"
+    [[ -z "$c_floating_title_fg" ]] && c_floating_title_fg="$c_border_fg"
+    [[ -z "$c_floating_title_bg" ]] && c_floating_title_bg="$c_border_bg"
+
+    # ─── COMPILACIÓN DE ESTILOS FINALES ───
+    local s_text="${modes_text}$(make_ansi "$c_text_fg" "$c_text_bg")"
+    local s_border="${modes_border}$(make_ansi "$c_border_fg" "$c_border_bg")"
+    local s_title="${modes_title}$(make_ansi "$c_title_fg" "$c_title_bg")"
+    local s_floating_title="${modes_floating_title}$(make_ansi "$c_floating_title_fg" "$c_floating_title_bg")"
+    local s_num="${modes_num}$(make_ansi "$c_num_fg" "$c_num_bg")"
+    local s_sep="${modes_sep}$(make_ansi "$c_sep_fg" "$c_sep_bg")"
+    local s_footer="${modes_footer}$(make_ansi "$c_footer_fg" "$c_footer_bg")"
+    local s_empty="$(make_ansi "$c_empty_fg" "")"
+    local s_match="$(make_ansi "$c_match_fg" "$c_match_bg")" 
+    local s_match_hi="$(make_ansi "$c_match_hi_fg" "$c_match_hi_bg")" 
+    local s_error="$(make_ansi "$c_error_fg" "")"
+    
+    local s_sprompt="$(make_ansi "$c_search_prompt_fg" "$c_search_prompt_bg")"
+    local s_stext="$(make_ansi "$c_search_text_fg" "$c_search_text_bg")"
+    local s_scursor="$(make_ansi "$c_search_cursor_fg" "$c_search_cursor_bg")"
+    local s_splace="$(make_ansi "$c_search_place_fg" "$c_search_place_bg")"
+    local reset="${ESC}[0m"
 
     local tmp_file=""
     if [[ ${#args_files[@]} -gt 0 ]]; then
         input_file="${args_files[0]}"
         original_filename="$input_file"
-        if [[ ! -f "$input_file" ]]; then echo "gum: file not found: $input_file" >&2; return 1; fi
+        if [[ ! -f "$input_file" ]]; then die "File not found: $input_file"; fi
         [[ -z "$title_raw" ]] && title_raw=" $(basename "$original_filename") "
     else
         if [ ! -t 0 ]; then
@@ -250,9 +520,7 @@ EOF
             input_file="$tmp_file"
             
             local real_source=""
-            if [[ -L "/dev/stdin" ]]; then
-                real_source=$(readlink -f /dev/stdin 2>/dev/null)
-            fi
+            if [[ -L "/dev/stdin" ]]; then real_source=$(readlink -f /dev/stdin 2>/dev/null); fi
             if [[ -n "$real_source" && -f "$real_source" ]]; then
                 original_filename=$(basename "$real_source")
             else
@@ -264,6 +532,36 @@ EOF
         else
             show_usage; return 1
         fi
+    fi
+
+    local raw_file="$input_file"
+    local raw_file_is_tmp=false   # ¿raw_file es un temp nuestro?
+    [[ -n "$tmp_file" ]] && raw_file_is_tmp=true
+
+    if grep -q $'\t' "$input_file" 2>/dev/null; then
+        local expanded_file
+        expanded_file=$(mktemp)
+        awk -v tw="$tab_width" '
+            {
+                line = $0; out = ""; col = 0
+                n = length(line)
+                for (i = 1; i <= n; i++) {
+                    c = substr(line, i, 1)
+                    if (c == "\t") {
+                        sp = tw - (col % tw)
+                        for (j = 0; j < sp; j++) out = out " "
+                        col += sp
+                    } else {
+                        out = out c
+                        col++
+                    }
+                }
+                print out
+            }
+        ' "$input_file" > "$expanded_file"
+        [[ -n "$tmp_file" && "$tmp_file" != "$raw_file" ]] && rm -f "$tmp_file"
+        tmp_file="$expanded_file"
+        input_file="$expanded_file"
     fi
 
     local processed_file=""
@@ -288,111 +586,95 @@ EOF
         hidden) b_tl=" "; b_tr=" "; b_bl=" "; b_br=" "; b_h=" "; b_v=" " ;;
     esac
 
-    if [[ "$timeout_sec" != "0" && -n "$timeout_sec" ]]; then
-        local sec=${timeout_sec%s}
-        ( sleep "$sec" && kill -TERM $$ 2>/dev/null ) &
-        local timeout_pid=$!
-        trap "kill $timeout_pid 2>/dev/null" EXIT
-    fi
+    local stty_orig
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon -isig < /dev/tty 2>/dev/null
+
+    local _interrupted=0
+    local needs_redraw=true
+
+    trap '_interrupted=1' SIGINT TERM
+    trap 'needs_redraw=true' SIGWINCH
 
     function _pager_cleanup() {
-        if command -v tput &>/dev/null; then tput rmcup > /dev/tty; else echo -ne "\033[?1049l" > /dev/tty; fi
-        echo -ne "\033[?25h\033[?7h\033[?1l\033>" > /dev/tty
+        while read -rsn1 -t 0.05 _trash < /dev/tty 2>/dev/null; do :; done
+        if [[ -n "$stty_orig" ]]; then stty "$stty_orig" < /dev/tty 2>/dev/null; fi
+        printf '%s' "${ESC}[?1049l${ESC}[?25h" > /dev/tty
         
         [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"
         [[ -n "$processed_file" && -f "$processed_file" ]] && rm -f "$processed_file"
-        
-        stty sane < /dev/tty
+        if [[ "$raw_file_is_tmp" == "true" && -n "$raw_file" && -f "$raw_file" && "$raw_file" != "$tmp_file" ]]; then
+            rm -f "$raw_file"
+        fi
     }
-    trap '_pager_cleanup; exit 0' EXIT INT TERM
 
-    local setup_seq="\033[?25l\033[?7l\033[?1049h"
-    echo -ne "$setup_seq" >&2
+    printf '%s' "${ESC}[?1049h${ESC}[?25l" > /dev/tty
     
     local scroll_offset=0
-    local total_lines=$(wc -l < "$input_file")
+    local total_lines=$(wc -l < "$input_file" | awk '{print $1}')
     [[ -s "$input_file" && "$total_lines" -eq 0 ]] && total_lines=1
     
-    local search_query=""
+    local is_typing_search=false
+    local q=""
+    local q_cursor_pos=0
+    local q_scroll_offset=0
+    
     local regex_pattern=""
     local search_matches=()
     local match_index=-1
     local status_msg=""
     local status_color=""
+    local cursor_visible=1
 
-    local s_text="${modes_text}${c_text_fg}${c_text_bg}"
-    local s_border="${modes_border}${c_border_fg}${c_border_bg}"
-    local s_title="${modes_title}${c_title_fg}${c_title_bg}"
-    local s_num="${modes_num}${c_num_fg}${c_num_bg}"
-    local s_sep="${modes_sep}${c_sep_fg}${c_sep_bg}"
-    local s_footer="${modes_footer}${c_footer_fg}${c_footer_bg}"
-    local s_empty="${c_empty_fg}"
-    local s_match="${c_match_fg}${c_match_bg}" 
-    local s_match_hi="${c_match_hi_fg}${c_match_hi_bg}" 
-    local s_error="${c_error_fg}"
-    local reset="\033[0m"
-
-    while true; do
-        local term_rows=$(tput lines)
-        local term_cols=$(tput cols)
+    function draw() {
+        local term_rows=$(tput lines 2>/dev/null || echo 24)
+        local term_cols=$(tput cols 2>/dev/null || echo 80)
         
-        local content_height=$((term_rows - 2))
+        local content_height=$((term_rows - 3))
         local content_width=$((term_cols - 2))
         
         if [[ $content_height -lt 1 || $content_width -lt 1 ]]; then
-            echo -ne "\033[HTerminal too small" >&2; read -rsn1 < /dev/tty; break
+            printf '\033[HTerminal too small\n' >&2; return
         fi
-
-        if [[ "$show_help" == "true" ]]; then
-            echo -ne "\033[H\033[2J" >&2
-            echo -e "\n ${s_border}Help:${reset}" >&2
-            echo -e "  j / ↓   : Scroll Down" >&2
-            echo -e "  k / ↑   : Scroll Up" >&2
-            echo -e "  /        : Search" >&2
-            echo -e "  n / N   : Next/Prev Match" >&2
-            echo -e "  ESC      : Clear Search / Quit" >&2
-            echo -e "\n ${s_footer}Press any key to return...${reset}" >&2
-            read -rsn1 < /dev/tty; show_help=false; continue
-        fi        
 
         local num_width=0
         if [[ "$show_line_numbers" == "true" ]]; then num_width=${#total_lines}; fi
 
-        echo -ne "\033[H" >&2
-        
-        local title_vis=$(sed 's/\x1b\[[0-9;]*m//g' <<< "$title_raw")
+        local title_vis
+        title_vis=$(strip_ansi "$title_raw")
         local title_len=${#title_vis}
         local avail_space=$((term_cols - 2))
-        
+
+        local frame=""
+
         if [[ -n "$title_raw" ]]; then
             local filler_len=$((avail_space - title_len))
             [[ $filler_len -lt 0 ]] && filler_len=0
-            
-            echo -ne "${s_border}${b_tl}" >&2
-            
+            frame+="${s_border}${b_tl}"
+
             case "$title_align" in
                 left)
-                    echo -ne "${reset}${s_title}${title_raw}${reset}${s_border}" >&2
-                    for ((i=0; i<filler_len; i++)); do echo -ne "${b_h}" >&2; done ;;
+                    frame+="${reset}${s_title}${title_raw}${reset}${s_border}"
+                    for ((i=0; i<filler_len; i++)); do frame+="${b_h}"; done ;;
                 right)
-                    for ((i=0; i<filler_len; i++)); do echo -ne "${b_h}" >&2; done
-                    echo -ne "${reset}${s_title}${title_raw}${reset}${s_border}" >&2 ;;
+                    for ((i=0; i<filler_len; i++)); do frame+="${b_h}"; done
+                    frame+="${reset}${s_title}${title_raw}${reset}${s_border}" ;;
                 center)
                     local pad_l=$((filler_len / 2)); local pad_r=$((filler_len - pad_l))
-                    for ((i=0; i<pad_l; i++)); do echo -ne "${b_h}" >&2; done
-                    echo -ne "${reset}${s_title}${title_raw}${reset}${s_border}" >&2
-                    for ((i=0; i<pad_r; i++)); do echo -ne "${b_h}" >&2; done ;;
+                    for ((i=0; i<pad_l; i++)); do frame+="${b_h}"; done
+                    frame+="${reset}${s_title}${title_raw}${reset}${s_border}"
+                    for ((i=0; i<pad_r; i++)); do frame+="${b_h}"; done ;;
             esac
-            echo -ne "${b_tr}${reset}\n" >&2
+            frame+="${b_tr}${reset}${NL}"
         else
-            echo -ne "${s_border}${b_tl}" >&2
-            for ((i=0; i<avail_space; i++)); do echo -ne "${b_h}" >&2; done
-            echo -ne "${b_tr}${reset}\n" >&2
+            frame+="${s_border}${b_tl}"
+            for ((i=0; i<avail_space; i++)); do frame+="${b_h}"; done
+            frame+="${b_tr}${reset}${NL}"
         fi
 
         local safe_search="${regex_pattern//\\/\\\\}"
         
-        awk -v OFFSET="$scroll_offset" \
+        frame+=$(awk -v OFFSET="$scroll_offset" \
             -v HEIGHT="$content_height" \
             -v WIDTH="$content_width" \
             -v SHOW_NUM="$show_line_numbers" \
@@ -414,10 +696,103 @@ EOF
             -v P_NR="$pad_num_r" \
             -v P_SL="$pad_sep_l" \
             -v P_SR="$pad_sep_r" \
+            -v USE_PCRE="$use_pcre" \
             '
-            function strip_ansi(str) { gsub(/\033\[[0-9;?]*[a-zA-Z]/, "", str); return str }
-            function visible_length(str) { return length(strip_ansi(str)) }
-            function get_cut_index(str, max_vis,    len_str, idx, vis_count, char, chunk, match_len) {
+            function strip_ansi_awk(str) {
+                ESC = sprintf("%c", 27)
+                BEL = sprintf("%c", 7)
+                state = 0   
+                out = ""
+                len = length(str)
+
+                for (i = 1; i <= len; i++) {
+                    c = substr(str, i, 1)
+
+                    if (state == 0) {                       
+                        if (c == ESC)       state = 1
+                        else if (c == BEL)  ;                
+                        else                out = out c
+
+                    } else if (state == 1) {                 
+                        if (c == "[")                                    state = 2
+                        else if (c == "]")                                state = 3
+                        else if (c ~ /^[%()0356#]$/)                      state = 5
+                        else if (c == BEL || c ~ /^[ABCDEHIJKMNOSTZcsu1278<=>]$/)
+                                                                           state = 0
+                        else {
+                            out = out ESC c                
+                            state = 0
+                        }
+
+                    } else if (state == 2) {              
+                        if (c == ";" || c == "?" || c ~ /^[0-9]$/) ;     
+                        else                                        state = 0
+
+                    } else if (state == 3) {                 
+                        if (c ~ /^[0-9]$/) state = 4
+                        else                state = 0
+
+                    } else if (state == 4) {              
+                        if (c == BEL)       state = 0
+                        else if (c == ESC)  state = 5
+
+                    } else if (state == 5) {                 
+                        state = 0
+                    }
+                }
+
+                return out
+            }
+
+            function highlight_in_raw(raw_str, ere_pat, s_match, reset_seq, s_txt,
+                                      plain, tmp, off, nm, ms, me,
+                                      n, i, chunk, c, vis_i, cm,
+                                      result, in_match, ansi_state, seq) {
+                plain = strip_ansi_awk(raw_str)
+                tmp = plain; off = 0; nm = 0
+                while (length(tmp) > 0) {
+                    if (!match(tmp, ere_pat)) break
+                    ms[++nm] = off + RSTART
+                    me[nm]   = off + RSTART + RLENGTH - 1
+                    off += RSTART + RLENGTH - 1
+                    tmp = substr(tmp, RSTART + RLENGTH)
+                }
+                if (nm == 0) return raw_str
+                n = length(raw_str); result = ""; vis_i = 0; cm = 1
+                ansi_state = ""; in_match = 0
+                for (i = 1; i <= n; ) {
+                    chunk = substr(raw_str, i)
+                    if (match(chunk, /^\033\[[0-9;?]*[a-zA-Z]/)) {
+                        seq = substr(raw_str, i, RLENGTH)
+                        if (seq == "\033[0m" || seq == "\033[m") ansi_state = ""
+                        else ansi_state = ansi_state seq
+                        if (!in_match) result = result seq
+                        i += RLENGTH; continue
+                    }
+                    vis_i++; c = substr(raw_str, i, 1); i++
+                    if (cm <= nm && vis_i == ms[cm]) { result = result s_match; in_match = 1 }
+                    result = result c
+                    if (cm <= nm && vis_i == me[cm]) {
+                        result = result reset_seq ansi_state s_txt
+                        in_match = 0; cm++
+                    }
+                }
+                return result
+            }
+
+            function pcre_to_ere(p) {
+                gsub(/\\d/, "[0-9]",          p)
+                gsub(/\\D/, "[^0-9]",         p)
+                gsub(/\\w/, "[a-zA-Z0-9_]",   p)
+                gsub(/\\W/, "[^a-zA-Z0-9_]",  p)
+                gsub(/\\s/, "[ \\t]",          p)
+                gsub(/\\S/, "[^ \\t]",         p)
+                gsub(/\\h/, "[ \\t]",          p)
+                gsub(/\\H/, "[^ \\t]",         p)
+                return p
+            }
+            function visible_length(str) { return length(strip_ansi_awk(str)) }
+            function get_cut_index(str, max_vis,    len_str, idx, vis_count, chunk) {
                 len_str = length(str); vis_count = 0; idx = 1
                 while (idx <= len_str && vis_count < max_vis) {
                     chunk = substr(str, idx)
@@ -429,11 +804,9 @@ EOF
                 if (SHOW_NUM != "true") return S_TXT;
                 pad_nl_str = sprintf("%"P_NL"s", ""); pad_nr_str = sprintf("%"P_NR"s", "")
                 pad_sl_str = sprintf("%"P_SL"s", ""); pad_sr_str = sprintf("%"P_SR"s", "")
-                
                 content = sprintf("%"NUM_W"d", l_no)
                 if (is_empty) content = sprintf("%"NUM_W"s", "~")
                 if (is_cont)  content = sprintf("%"NUM_W"s", "")
-                
                 return S_NUM pad_nl_str content pad_nr_str RESET pad_sl_str S_SEP SEP_CHAR RESET pad_sr_str S_TXT
             }
             function print_line(txt, l_no, is_empty, is_cont) {
@@ -450,15 +823,14 @@ EOF
                 if (printed >= HEIGHT) exit
                 if (NR <= OFFSET) next
                 raw = $0
-                if (PLAIN == "true") raw = strip_ansi(raw)
-                
-                # Highlight search match
-                if (SEARCH != "") gsub(SEARCH, S_MATCH "&" RESET S_TXT, raw)
-                
+                if (PLAIN == "true") raw = strip_ansi_awk(raw)
+                if (SEARCH != "") {
+                    ere = (USE_PCRE == "true") ? pcre_to_ere(SEARCH) : SEARCH
+                    if (strip_ansi_awk(raw) ~ ere) raw = highlight_in_raw(raw, ere, S_MATCH, RESET, S_TXT)
+                }
                 plen = 0
                 if (SHOW_NUM == "true") plen = P_NL + NUM_W + P_NR + P_SL + 1 + P_SR
                 max = WIDTH - plen; if (max < 1) max = 1
-                
                 if (WRAP == "true" && visible_length(raw) > max) {
                     line = raw; is_c = 0
                     while (visible_length(line) > max) {
@@ -479,67 +851,381 @@ EOF
                 }
             }
             END { while (printed < HEIGHT) { print_line("", 0, 1, 0); printed++ } }
-            ' "$input_file" >&2
+            ' "$input_file")
+        frame+="${NL}"
 
         local percent=100
         if (( total_lines > 0 )); then
-            local end_line=$(( scroll_offset + viewport_height ))
+            local end_line=$(( scroll_offset + content_height ))
             [[ $end_line -gt $total_lines ]] && end_line=$total_lines
             percent=$(( end_line * 100 / total_lines ))
         fi
-        
+
         local info_txt=" ${percent}% • ${scroll_offset}/${total_lines} "
-        if [[ -n "$status_msg" ]]; then info_txt=" ${status_msg} "; fi
-        
         local info_len=${#info_txt}
-        local avail_space=$((term_cols - 2))
         local filler_len=$((avail_space - info_len))
         local pad_l=$((filler_len / 2))
         local pad_r=$((filler_len - pad_l))
-        
-        echo -ne "${s_border}${b_bl}" >&2
-        for ((i=0; i<pad_l; i++)); do echo -ne "${b_h}" >&2; done
-        echo -ne "${reset}${s_footer}${info_txt}${reset}${s_border}" >&2
-        for ((i=0; i<pad_r; i++)); do echo -ne "${b_h}" >&2; done
-        echo -ne "${b_br}${reset}" >&2
 
-        read -rsn1 key < /dev/tty
-        if [[ $key == $'\x1b' ]]; then
-            read -rsn2 -t 0.01 key < /dev/tty
-            if [[ -z "$key" ]]; then
-                if [[ -n "$regex_pattern" ]]; then
-                    regex_pattern=""
-                    search_matches=()
-                    status_msg=""
+        frame+="${s_border}${b_bl}"
+        for ((i=0; i<pad_l; i++)); do frame+="${b_h}"; done
+        frame+="${reset}${s_footer}${info_txt}${reset}${s_border}"
+        for ((i=0; i<pad_r; i++)); do frame+="${b_h}"; done
+        frame+="${b_br}${reset}${NL}"
+
+        if [[ "$is_typing_search" == "true" && "$input_type" == "normal" ]]; then
+            local prompt_w=${#search_prompt_char}
+            local input_w=$(( term_cols - prompt_w ))
+            [[ $input_w -lt 5 ]] && input_w=5
+            
+            local max_offset=$(( ${#q} - input_w ))
+            [[ $max_offset -lt 0 ]] && max_offset=0
+            if (( q_scroll_offset > max_offset )); then q_scroll_offset=$max_offset; fi
+
+            if (( q_cursor_pos >= q_scroll_offset + input_w )); then q_scroll_offset=$(( q_cursor_pos - input_w + 1 ))
+            elif (( q_cursor_pos < q_scroll_offset )); then q_scroll_offset=$q_cursor_pos; fi
+            [[ $q_scroll_offset -lt 0 ]] && q_scroll_offset=0
+            
+            local visible_content="${q:$q_scroll_offset:$input_w}"
+            local rel_cursor=$(( q_cursor_pos - q_scroll_offset ))
+            local rendered_input=""
+            
+            if [[ -z "$q" ]]; then
+                local visible_ph="${search_placeholder:0:$input_w}"
+                local p_char="${visible_ph:0:1}"; local p_rest="${visible_ph:1}"
+                [[ -z "$p_char" ]] && p_char=" " 
+                if [[ "$cursor_mode" == "hide" || ( "$cursor_mode" == "blink" && $cursor_visible -eq 0 ) ]]; then
+                    rendered_input="${s_splace}${visible_ph}"
                 else
-                    break
+                    rendered_input="${s_scursor}${p_char}${reset}${s_splace}${p_rest}"
                 fi
             else
-                case "$key" in '[A') ((scroll_offset -= scroll_step));; '[B') ((scroll_offset += scroll_step));; '[H'|'OH') scroll_offset=0;; '[F'|'OF') scroll_offset=$((total_lines - content_height));; esac
+                local char_under="${visible_content:rel_cursor:1}"
+                [[ -z "$char_under" ]] && char_under=" "
+                local left_part="${visible_content:0:rel_cursor}"; local right_part="${visible_content:rel_cursor+1}"
+                if [[ "$cursor_mode" == "hide" || ( "$cursor_mode" == "blink" && $cursor_visible -eq 0 ) ]]; then
+                    rendered_input="${s_stext}${visible_content}"
+                else
+                    rendered_input="${s_stext}${left_part}${reset}${s_scursor}${char_under}${reset}${s_stext}${right_part}"
+                fi
+            fi
+            
+            frame+="${s_sprompt}${search_prompt_char}${reset}${rendered_input}${reset}${ESC}[K"
+        else
+            local msg="${s_footer}↓↑ navigate • / search • n/N next/prev • esc quit/clear${reset}"
+            if [[ -n "$status_msg" ]]; then
+                msg="${status_color}${status_msg}${reset} ${s_footer}•${reset} ${msg}"
+            fi
+            frame+="${msg}${ESC}[K"
+        fi
+
+        if [[ "$is_typing_search" == "true" && "$input_type" == "floating" ]]; then
+            _build_floating_input "$term_rows" "$term_cols"
+            frame+="$_floating_overlay"
+        fi
+
+        printf '\033[?2026h\033[H%s\033[?2026l' "$frame" > /dev/tty
+    }
+
+    function _build_floating_input() {
+        local term_rows="$1" term_cols="$2"
+        local prompt_w=${#search_prompt_char}
+
+        local min_box_w=$(( prompt_w + 3 + 4 ))
+        if [[ -n "$floating_title_raw" ]]; then
+            local _ft_plain_w
+            _ft_plain_w=$(strip_ansi "$floating_title_raw")
+            local _ft_min=$(( ${#_ft_plain_w} + 4 ))
+            (( _ft_min > min_box_w )) && min_box_w=$_ft_min
+        fi
+        local max_w=$((term_cols - 4))
+
+        local box_w="$input_width"
+        [[ $box_w -lt $min_box_w ]] && box_w=$min_box_w
+        [[ $box_w -gt $max_w ]] && box_w=$max_w
+
+        local text_w=$(( box_w - 4 - prompt_w ))
+        [[ $text_w -lt 1 ]] && text_w=1
+
+        local box_row=$(( term_rows / 3 ))
+        local box_col=$(( (term_cols - box_w) / 2 ))
+        [[ $box_row -lt 1 ]] && box_row=1
+        [[ $box_col -lt 1 ]] && box_col=1
+
+        local max_offset=$(( ${#q} - text_w ))
+        [[ $max_offset -lt 0 ]] && max_offset=0
+        if (( q_scroll_offset > max_offset )); then q_scroll_offset=$max_offset; fi
+
+        if (( q_cursor_pos >= q_scroll_offset + text_w )); then q_scroll_offset=$(( q_cursor_pos - text_w + 1 ))
+        elif (( q_cursor_pos < q_scroll_offset )); then q_scroll_offset=$q_cursor_pos; fi
+        [[ $q_scroll_offset -lt 0 ]] && q_scroll_offset=0
+
+        local visible_content="${q:$q_scroll_offset:$text_w}"
+        local rel_cursor=$(( q_cursor_pos - q_scroll_offset ))
+
+        local rendered_input="" shown_len=0
+
+        if [[ -z "$q" ]]; then
+            local visible_ph="${search_placeholder:0:$text_w}"
+            local p_char="${visible_ph:0:1}"; local p_rest="${visible_ph:1}"
+            local placeholder_extends=false
+            if [[ -z "$p_char" ]]; then p_char=" "; placeholder_extends=true; fi
+            if [[ "$cursor_mode" == "hide" || ( "$cursor_mode" == "blink" && $cursor_visible -eq 0 ) ]]; then
+                rendered_input="${s_splace}${visible_ph}"
+                shown_len=${#visible_ph}
+            else
+                rendered_input="${s_scursor}${p_char}${reset}${s_splace}${p_rest}"
+                shown_len=${#visible_ph}
+                $placeholder_extends && ((shown_len++))
+            fi
+        else
+            local char_under="${visible_content:rel_cursor:1}"
+            local cursor_extends=false
+            if [[ -z "$char_under" ]]; then char_under=" "; cursor_extends=true; fi
+            local left_part="${visible_content:0:rel_cursor}"; local right_part="${visible_content:rel_cursor+1}"
+            if [[ "$cursor_mode" == "hide" || ( "$cursor_mode" == "blink" && $cursor_visible -eq 0 ) ]]; then
+                rendered_input="${s_stext}${visible_content}"
+                shown_len=${#visible_content}
+            else
+                rendered_input="${s_stext}${left_part}${reset}${s_scursor}${char_under}${reset}${s_stext}${right_part}"
+                shown_len=${#visible_content}
+                $cursor_extends && ((shown_len++))
+            fi
+        fi
+
+        local fill=$(( text_w - shown_len ))
+        [[ $fill -lt 0 ]] && fill=0
+        local fill_str=""
+        (( fill > 0 )) && printf -v fill_str "%${fill}s" ""
+
+        local top=""
+        if [[ -n "$floating_title_raw" ]]; then
+            local ft_vis ft_len avail_title ft_filler_len
+            ft_vis=$(strip_ansi "$floating_title_raw")
+            ft_len=${#ft_vis}
+            avail_title=$(( box_w - 2 ))
+            ft_filler_len=$(( avail_title - ft_len ))
+            [[ $ft_filler_len -lt 0 ]] && ft_filler_len=0
+
+            top="${s_border}${b_tl}"
+            case "$floating_title_align" in
+                left)
+                    top+="${reset}${s_floating_title}${floating_title_raw}${reset}${s_border}"
+                    for ((i=0; i<ft_filler_len; i++)); do top+="${b_h}"; done
+                    ;;
+                right)
+                    for ((i=0; i<ft_filler_len; i++)); do top+="${b_h}"; done
+                    top+="${reset}${s_floating_title}${floating_title_raw}${reset}${s_border}"
+                    ;;
+                *)
+                    local ft_pad_l=$((ft_filler_len / 2)); local ft_pad_r=$((ft_filler_len - ft_pad_l))
+                    for ((i=0; i<ft_pad_l; i++)); do top+="${b_h}"; done
+                    top+="${reset}${s_floating_title}${floating_title_raw}${reset}${s_border}"
+                    for ((i=0; i<ft_pad_r; i++)); do top+="${b_h}"; done
+                    ;;
+            esac
+            top+="${b_tr}${reset}"
+        else
+            top="${s_border}${b_tl}"
+            for ((i=0; i<box_w-2; i++)); do top+="${b_h}"; done
+            top+="${b_tr}${reset}"
+        fi
+        local bottom="${s_border}${b_bl}"; for ((i=0; i<box_w-2; i++)); do bottom+="${b_h}"; done; bottom+="${b_br}${reset}"
+        local mid="${s_border}${b_v}${reset} ${s_sprompt}${search_prompt_char}${reset}${rendered_input}${reset}${fill_str} ${s_border}${b_v}${reset}"
+
+        local seg1 seg2 seg3
+        printf -v seg1 '\033[%d;%dH%s' "$box_row" "$box_col" "$top"
+        printf -v seg2 '\033[%d;%dH%s' "$((box_row + 1))" "$box_col" "$mid"
+        printf -v seg3 '\033[%d;%dH%s' "$((box_row + 2))" "$box_col" "$bottom"
+        _floating_overlay="${seg1}${seg2}${seg3}"
+    }
+
+    function _flush_floating_box_only() {
+        local _tr _tc
+        _tr=$(tput lines 2>/dev/null || echo 24)
+        _tc=$(tput cols 2>/dev/null || echo 80)
+        _build_floating_input "$_tr" "$_tc"
+        printf '\033[?2026h%s\033[?2026l' "$_floating_overlay" > /dev/tty
+    }
+
+    local start_time=$(date +%s)
+    local last_blink=$(date +%s%3N)
+
+    while true; do
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
+        fi
+
+        local read_opts=("-rsn1")
+        if [[ "$timeout_sec" != "0" ]]; then
+            local now=$(date +%s)
+            local elapsed=$((now - start_time))
+            if (( elapsed >= timeout_sec )); then _pager_cleanup; return 124; fi
+            read_opts+=("-t" "0.05")
+        else
+            if [[ "$is_typing_search" == "true" && "$cursor_mode" == "blink" ]]; then
+                read_opts+=("-t" "0.05")
+            fi
+        fi
+
+        local _read_status=0
+        IFS= read "${read_opts[@]}" key < /dev/tty || _read_status=$?
+
+        local current_time=$(date +%s%3N)
+
+        if [[ $_interrupted -eq 1 ]]; then
+            _pager_cleanup
+            return 130
+        fi
+
+        if [[ $_read_status -ne 0 ]]; then
+            if [[ "$is_typing_search" == "true" && "$cursor_mode" == "blink" ]]; then
+                if (( current_time - last_blink >= 500 )); then
+                    ((cursor_visible = 1 - cursor_visible))
+                    last_blink=$current_time
+                    if [[ "$input_type" == "floating" ]]; then
+                        _flush_floating_box_only
+                    else
+                        needs_redraw=true
+                    fi
+                fi
+            fi
+            continue
+        fi
+
+        cursor_visible=1
+        last_blink=$current_time
+
+        local term_rows=$(tput lines)
+        local content_height=$((term_rows - 3))
+
+        needs_redraw=true
+        local _box_only=false
+
+        if [[ "$is_typing_search" == "true" ]]; then
+            case "$key" in
+                $'\x03'|$'\x04') 
+                    _pager_cleanup
+                    return 130
+                    ;;
+                $'\x1b')
+                    local seq=""
+                    IFS= read -rsn2 -t 0.15 seq < /dev/tty || true
+                    if [[ -z "$seq" ]]; then
+                        is_typing_search=false
+                        q=""
+                        regex_pattern=""
+                        search_matches=()
+                        status_msg=""
+                    else
+                        if [[ "$seq" =~ ^\[[0-9]$ ]]; then
+                            local c3=""; IFS= read -rsn1 -t 0.15 c3 < /dev/tty || true; seq="${seq}${c3}"
+                        fi
+                        case "$seq" in
+                            "[C"|"OC") ((q_cursor_pos++)); [[ $q_cursor_pos -gt ${#q} ]] && q_cursor_pos=${#q}; _box_only=true ;;
+                            "[D"|"OD") ((q_cursor_pos--)); [[ $q_cursor_pos -lt 0 ]] && q_cursor_pos=0; _box_only=true ;;
+                            "[H"|"OH"|"[1~"|"[7~") q_cursor_pos=0; _box_only=true ;;
+                            "[F"|"OF"|"[4~"|"[8~") q_cursor_pos=${#q}; _box_only=true ;;
+                            "[3~")
+                                if (( q_cursor_pos < ${#q} )); then
+                                    q="${q:0:q_cursor_pos}${q:q_cursor_pos+1}"
+                                fi
+                                _box_only=true ;;
+                        esac
+                    fi
+                    ;;
+                $'\x7f'|$'\b')
+                    if (( q_cursor_pos > 0 )); then
+                        q="${q:0:q_cursor_pos-1}${q:q_cursor_pos}"
+                        ((q_cursor_pos--))
+                    fi
+                    _box_only=true
+                    ;;
+                ""|$'\x0a'|$'\x0d')
+                    is_typing_search=false
+                    if [[ -n "$q" ]]; then
+                        regex_pattern="$q"
+                        local _grep_flag="-nE"
+                        [[ "$use_pcre" == "true" ]] && _grep_flag="-nP"
+                        mapfile -t search_matches < <(grep $_grep_flag "$q" "$raw_file" 2>/dev/null | cut -d: -f1)
+                        if [[ ${#search_matches[@]} -eq 0 ]]; then
+                            status_msg="Not found"; status_color="$s_error"; regex_pattern=""
+                        else
+                            match_index=0
+                            scroll_offset=$((${search_matches[0]} - 1))
+                            status_msg="Found ${#search_matches[@]}"
+                            status_color="$s_footer"
+                        fi
+                    else
+                        regex_pattern=""
+                        search_matches=()
+                        status_msg=""
+                    fi
+                    ;;
+                *)
+                    if [[ "$key" =~ [[:print:]] ]]; then
+                        q="${q:0:q_cursor_pos}${key}${q:q_cursor_pos}"
+                        ((q_cursor_pos++))
+                    fi
+                    _box_only=true
+                    ;;
+            esac
+
+            if [[ "$_box_only" == "true" && "$input_type" == "floating" ]]; then
+                needs_redraw=false
+                _flush_floating_box_only
             fi
         else
             case "$key" in
-                "q"|$'\03') break ;;
+                $'\x03'|$'\x04'|"q") _pager_cleanup; return 0 ;;
+                $'\x1b')
+                    local seq=""
+                    IFS= read -rsn2 -t 0.15 seq < /dev/tty || true
+                    if [[ -z "$seq" ]]; then
+                        regex_pattern=""
+                        search_matches=()
+                        q=""
+                        status_msg=""
+                    else
+                        case "$seq" in
+                            "[A"|"OA") ((scroll_offset -= scroll_step)) ;;
+                            "[B"|"OB") ((scroll_offset += scroll_step)) ;;
+                            "[H"|"OH") scroll_offset=0 ;;
+                            "[F"|"OF") scroll_offset=$((total_lines - content_height)) ;;
+                        esac
+                    fi
+                    ;;
                 "j"|"J") ((scroll_offset += scroll_step)) ;;
                 "k"|"K") ((scroll_offset -= scroll_step)) ;;
                 "d") ((scroll_offset += content_height / 2)) ;;
                 "u") ((scroll_offset -= content_height / 2)) ;;
                 "g") scroll_offset=0 ;;
                 "G") scroll_offset=$((total_lines - content_height)) ;;
-                "?"|"h") show_help=true ;;
                 "/") 
-                    echo -ne "\r\033[K${s_footer}/${reset}" >&2; echo -ne "\033[?25h" >&2
-                    local q=""; while true; do read -rsn1 c < /dev/tty; if [[ "$c" == "" ]]; then break; elif [[ "$c" == $'\x7f' ]]; then [[ -n "$q" ]] && q="${q%?}" && echo -ne "\b \b" >&2; elif [[ "$c" == $'\x1b' ]]; then q=""; break; else q+="$c"; echo -ne "$c" >&2; fi; done
-                    echo -ne "\033[?25l" >&2
-                    if [[ -n "$q" ]]; then regex_pattern="$q"; mapfile -t search_matches < <(grep -nE "$q" "$input_file" 2>/dev/null | cut -d: -f1); if [[ ${#search_matches[@]} -eq 0 ]]; then status_msg="Not found"; status_color="$s_error"; regex_pattern=""; else match_index=0; scroll_offset=$((${search_matches[0]} - 1)); status_msg="Found ${#search_matches[@]}"; fi; fi ;;
-                "n") [[ ${#search_matches[@]} -gt 0 ]] && { ((match_index++)); [[ $match_index -ge ${#search_matches[@]} ]] && match_index=0; scroll_offset=$((${search_matches[$match_index]} - 1)); } ;;
-                "N") [[ ${#search_matches[@]} -gt 0 ]] && { ((match_index--)); [[ $match_index -lt 0 ]] && match_index=$((${#search_matches[@]} - 1)); scroll_offset=$((${search_matches[$match_index]} - 1)); } ;;
+                    is_typing_search=true
+                    q=""
+                    q_cursor_pos=0
+                    q_scroll_offset=0
+                    ;;
+                "n")
+                    if [[ ${#search_matches[@]} -gt 0 ]]; then
+                        ((match_index++))
+                        [[ $match_index -ge ${#search_matches[@]} ]] && match_index=0
+                        scroll_offset=$((${search_matches[$match_index]} - 1))
+                    fi ;;
+                "N")
+                    if [[ ${#search_matches[@]} -gt 0 ]]; then
+                        ((match_index--))
+                        [[ $match_index -lt 0 ]] && match_index=$((${#search_matches[@]} - 1))
+                        scroll_offset=$((${search_matches[$match_index]} - 1))
+                    fi ;;
             esac
         fi
-        
-        [[ $scroll_offset -lt 0 ]] && scroll_offset=0
+
         local max_off=$((total_lines - content_height))
         if (( max_off < 0 )); then max_off=0; fi
+        [[ $scroll_offset -lt 0 ]] && scroll_offset=0
         [[ $scroll_offset -gt $max_off ]] && scroll_offset=$max_off
     done
 }

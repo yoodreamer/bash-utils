@@ -3,23 +3,223 @@
 function cmd_text() {
     
     local ESC=$'\e'
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function _list_color_names() {
+        _css_init
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
     
-    function hex_to_rgb() {
-        local hex=$1
-        hex="${hex#"#"}"
-        if [[ ${#hex} -eq 3 ]]; then
-            local r=${hex:0:1}; local g=${hex:1:1}; local b=${hex:2:1}
-            hex="${r}${r}${g}${g}${b}${b}"
-        fi
-        if [[ ${#hex} -eq 6 ]]; then
-            printf "%d %d %d" "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+    function resolve_color() {
+        local val="${1,,}"
+        if [[ -z "$val" ]]; then _resolve_result=""; return; fi
+        if [[ "$val" == \#* ]]; then _resolve_result="$val"; return; fi
+        case "$val" in
+            black) _resolve_result="0" ;; red) _resolve_result="1" ;; green) _resolve_result="2" ;;
+            yellow) _resolve_result="3" ;; blue) _resolve_result="4" ;;
+            magenta|purple) _resolve_result="5" ;; cyan) _resolve_result="6" ;; white) _resolve_result="7" ;;
+            brightblack|gray|grey) _resolve_result="8" ;; brightred) _resolve_result="9" ;; brightgreen) _resolve_result="10" ;;
+            brightyellow) _resolve_result="11" ;; brightblue) _resolve_result="12" ;; brightmagenta|brightpurple) _resolve_result="13" ;;
+            brightcyan) _resolve_result="14" ;; brightwhite) _resolve_result="15" ;;
+            *)
+                _css_init
+                local css_hex="${_CSS_COLORS[$val]:-}"
+                if [[ -n "$css_hex" ]]; then
+                    _resolve_result="#$css_hex"
+                else
+                    _resolve_result="$val"
+                fi
+                ;;
+        esac
+    }
+
+    function _color_seq() {
+        local val="$1" layer="$2"
+        if [[ -z "$val" ]]; then _color_seq_result=""; return; fi
+        if [[ "$val" == \#* ]]; then
+            local hex="${val#\#}"
+            [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+            local r=$(( 16#${hex:0:2} )); local g=$(( 16#${hex:2:2} )); local b=$(( 16#${hex:4:2} ))
+            printf -v _color_seq_result "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
         else
-            echo "255 255 255"
+            printf -v _color_seq_result "${ESC}[%d;5;%dm" "$layer" "$val"
         fi
     }
 
+    function get_rgb() {
+        local color="${1,,}" 
+
+        case "$color" in
+            black) color=0 ;;
+            red) color=1 ;;
+            green) color=2 ;;
+            yellow) color=3 ;;
+            blue) color=4 ;;
+            magenta|purple) color=5 ;;
+            cyan) color=6 ;;
+            white) color=7 ;;
+            brightblack|gray|grey) color=8 ;;
+            brightred) color=9 ;;
+            brightgreen) color=10 ;;
+            brightyellow) color=11 ;;
+            brightblue) color=12 ;;
+            brightmagenta|brightpurple) color=13 ;;
+            brightcyan) color=14 ;;
+            brightwhite) color=15 ;;
+        esac
+
+        if [[ "$color" == \#* ]]; then
+            local hex="${color#\#}"
+            [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+            printf "%d %d %d" "0x${hex:0:2}" "0x${hex:2:2}" "0x${hex:4:2}"
+        else
+            local c=$color
+            if ! [[ "$c" =~ ^[0-9]+$ ]]; then
+                _css_init
+                local css_hex="${_CSS_COLORS[$c]:-}"
+                if [[ -n "$css_hex" ]]; then
+                    printf "%d %d %d" "0x${css_hex:0:2}" "0x${css_hex:2:2}" "0x${css_hex:4:2}"
+                else
+                    echo "255 255 255"
+                fi
+                return
+            fi
+
+            if (( c >= 16 && c <= 231 )); then
+                local vals=(0 95 135 175 215 255)
+                local n=$(( c - 16 ))
+                printf "%d %d %d" "${vals[$(( n / 36 ))]}" "${vals[$(( (n % 36) / 6 ))]}" "${vals[$(( n % 6 ))]}"
+            elif (( c >= 232 && c <= 255 )); then
+                local g=$(( (c - 232) * 10 + 8 ))
+                printf "%d %d %d" "$g" "$g" "$g"
+            else
+                local std=("0 0 0" "205 0 0" "0 205 0" "205 205 0" "0 0 238" "205 0 205" "0 205 205" "229 229 229" "127 127 127" "255 0 0" "0 255 0" "255 255 0" "92 92 255" "255 0 255" "0 255 255" "255 255 255")
+                (( c > 15 )) && c=15
+                echo "${std[$c]}"
+            fi
+        fi
+    }
+
+    function _register_gradient() {
+        local id="$1" c1="$2" c2="$3" dir="$4"
+        grad_defs[$id]="${c1},${c2}"
+        grad_dir[$id]="$dir"
+        local rr1 gg1 bb1 rr2 gg2 bb2
+        read -r rr1 gg1 bb1 <<< "$(get_rgb "$c1")"
+        read -r rr2 gg2 bb2 <<< "$(get_rgb "$c2")"
+        grad_r1[$id]="$rr1"; grad_g1[$id]="$gg1"; grad_b1[$id]="$bb1"
+        grad_r2[$id]="$rr2"; grad_g2[$id]="$gg2"; grad_b2[$id]="$bb2"
+    }
+
     function strip_ansi() {
-        sed -E 's/\x1b(\[[0-9;]*[A-Za-z]|\][^\x1b]*\x1b\\)//g' <<< "$1"
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out_parts=()
+        local -i state=0 
+        local -r ESC=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) case "$c" in
+                       "$ESC") state=1 ;;
+                       "$BEL") : ;;
+                       *) out_parts+=("$c") ;;
+                   esac ;;
+                1) case "$c" in
+                       '[') state=2 ;;
+                       ']') state=3 ;;
+                       '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                       "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>') state=0 ;;
+                       *) out_parts+=("${ESC}${c}"); state=0 ;;
+                   esac ;;
+                2) case "$c" in
+                       ';'|'?'|[0-9]) : ;;
+                       *) state=0 ;;
+                   esac ;;
+                3) case "$c" in
+                       [0-9]) state=4 ;;
+                       *) state=0 ;;
+                   esac ;;
+                4) case "$c" in
+                       "$BEL") state=0 ;;
+                       "$ESC") state=5 ;;
+                   esac ;;
+                5) state=0 ;;
+            esac
+        done
+        printf '%s' "${out_parts[@]}"
     }
 
     function check_literal() {
@@ -30,7 +230,7 @@ function cmd_text() {
         done
         if [[ "$found" == "false" ]]; then
             local list_str=$(IFS=, ; echo "${options[*]}")
-            echo "gum: error: invalid value for --$param_name: \"$value\"" >&2
+            echo "error: invalid value for --$param_name: \"$value\"" >&2
             echo "Valid options: $list_str" >&2
             return 1
         fi
@@ -38,12 +238,9 @@ function cmd_text() {
     }
 
     function parse_bool() {
-        local val="${1,,}" # to lower
-        if [[ "$val" == "true" || "$val" == "1" || "$val" == "yes" ]]; then
-            echo "true"
-        else
-            echo "false"
-        fi
+        local val="${1,,}"
+        if [[ "$val" == "true" || "$val" == "1" || "$val" == "yes" ]]; then echo "true"
+        else echo "false"; fi
     }
 
     function show_help_panel() {
@@ -51,29 +248,45 @@ function cmd_text() {
 Usage: bash-utils text [flags] <text>...
 
 Print text with styles, alignment, and TrueColor gradients.
-Defaults to a purple gradient if no color is specified.
+Includes an inline markup engine! Example:
+  bash-utils text "[b]Hello[end] [fg.grad=#A,#B][dir=rtl]World[end] [fg=red]!"
 
-Arguments:
-  <text>...            Text to print
+Markup Tags:
+  [b] [i] [u] [s]          -> Enable styles (bold, italic, underline, strike)
+  [/b] [/i] [/u] [/s]      -> Disable specific style
+  [fg=color]               -> Solid foreground (Name (incl. CSS names like 'coral'), Hex, or 0-255)
+  [bg=color]               -> Solid background (Name, Hex, or 0-255)
+  [fg.grad=C1,C2]          -> Foreground gradient
+  [bg.grad=C1,C2]          -> Background gradient
+  [dir=ltr/rtl]            -> Active foreground gradient direction
+  [bg.dir=ltr/rtl]         -> Active background gradient direction
+  [hypr=URL,Text]          -> Creates a clickable terminal hyperlink
+  [reset] or [end]         -> Clear all styles and colors
 
-Flags:
-  -h, --help           Show help
-  --align="left"       Alignment (left, center, right)
-  
-  # Color Options
-  --foreground=""      Solid foreground color (Hex)
-  --gradient="A,B"     Foreground Gradient (Hex start, Hex end) or "none"
-  --dir="ltr"          Foreground Gradient direction (ltr, rtl)
+Escapes (texto literal, sin interpretar como tag):
+  \[   -> Imprime un '[' literal
+  \]   -> Imprime un ']' literal
+  \\   -> Imprime un '\' literal
+  Útil para imprimir corchetes que no son markup, ej: "\[\$i\] Iterando \$i"
 
-  --background=""      Solid background color (Hex)
-  --bg-gradient="A,B"  Background Gradient (Hex start, Hex end) or "none"
-  --bg-dir="ltr"       Background Gradient direction (ltr, rtl)
-                       
-  # Styles (Boolean: can be --flag or --flag=true/false)
-  --bold               Apply bold style
-  --italic             Apply italic style
-  --underline          Apply underline style
-  --strikethrough      Apply strikethrough style
+Global Flags (Serve as the base state):
+  -h, --help               Show help
+  --align="left"           Alignment (left, center, right)
+  --foreground=""          Solid foreground color (Name, Hex or 0-255)
+  --gradient="A,B"         Foreground Gradient
+  --dir="ltr"              Foreground Gradient direction (ltr, rtl)
+  --background=""          Solid background color
+  --bg-gradient="A,B"      Background Gradient
+  --bg-dir="ltr"           Background Gradient direction
+  --bold                   Apply bold style
+  --italic                 Apply italic style
+  --underline              Apply underline style
+  --strikethrough          Apply strikethrough style
+
+Syntax Errors:
+  Since markup tags are written inline in the text, the parser is strict
+  about them (like a small language). If something looks wrong, it will
+  stop and tell you exactly what's invalid and what's valid instead.
 EOF
     }
 
@@ -95,73 +308,78 @@ EOF
     local user_set_color=false 
 
     local args_text=()
+
+    function _require_arg() {
+        local flag="$1" remaining="$2" nextval="$3"
+        if (( remaining < 2 )) || [[ "$nextval" == --* ]]; then
+            die "Falta argumento para '${flag}'. Literal esperado: un valor (ni otra bandera)."
+        fi
+    }
+
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
     
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --gradient=*)
-                local val="${1#*=}"
-                if [[ "$val" == "none" ]]; then
-                    gradient=""
-                    user_set_color=true 
-                else
-                    gradient="$val"
-                    user_set_color=true
-                fi
-                shift ;;
-            --gradient)
-                if [[ "$2" == "none" ]]; then
-                    gradient=""
-                    user_set_color=true
-                else
-                    gradient="$2"
-                    user_set_color=true
-                fi
-                shift 2 ;;
-            
+            --gradient=*) val="${1#*=}"; [[ "$val" == "none" ]] && gradient="" || gradient="$val"; user_set_color=true; shift ;;
+            --gradient)   _require_arg "--gradient" "$#" "$2"; [[ "$2" == "none" ]] && gradient="" || gradient="$2"; user_set_color=true; shift 2 ;;
             --foreground=*)   foreground="${1#*=}"; user_set_color=true; shift ;;
-            --foreground)     foreground="$2";      user_set_color=true; shift 2 ;;
+            --foreground)     _require_arg "--foreground" "$#" "$2"; foreground="$2";      user_set_color=true; shift 2 ;;
             --dir=*)          direction="${1#*=}"; shift ;;
-            --dir)            direction="$2";      shift 2 ;;
+            --dir)            _require_arg "--dir" "$#" "$2"; direction="$2";      shift 2 ;;
             
-            --bg-gradient=*)
-                 local val="${1#*=}"
-                 if [[ "$val" == "none" ]]; then bg_gradient=""; else bg_gradient="$val"; fi
-                 shift ;;
-            --bg-gradient)    
-                 if [[ "$2" == "none" ]]; then bg_gradient=""; else bg_gradient="$2"; fi
-                 shift 2 ;;
-            
+            --bg-gradient=*) val="${1#*=}"; [[ "$val" == "none" ]] && bg_gradient="" || bg_gradient="$val"; shift ;;
+            --bg-gradient)   _require_arg "--bg-gradient" "$#" "$2"; [[ "$2" == "none" ]] && bg_gradient="" || bg_gradient="$2"; shift 2 ;;
             --background=*)   background="${1#*=}"; shift ;;
-            --background)     background="$2";      shift 2 ;;
+            --background)     _require_arg "--background" "$#" "$2"; background="$2";      shift 2 ;;
             --bg-dir=*)       bg_direction="${1#*=}"; shift ;;
-            --bg-dir)         bg_direction="$2";      shift 2 ;;
+            --bg-dir)         _require_arg "--bg-dir" "$#" "$2"; bg_direction="$2";      shift 2 ;;
 
             --align=*)        align="${1#*=}"; shift ;;
-            --align)          align="$2";      shift 2 ;;
+            --align)          _require_arg "--align" "$#" "$2"; align="$2";      shift 2 ;;
             
             --bold=*)          style_bold=$(parse_bool "${1#*=}"); shift ;;
             --bold)            style_bold="true"; shift ;;
-            
             --italic=*)        style_italic=$(parse_bool "${1#*=}"); shift ;;
             --italic)          style_italic="true"; shift ;;
-            
             --underline=*)     style_underline=$(parse_bool "${1#*=}"); shift ;;
             --underline)       style_underline="true"; shift ;;
-            
             --strikethrough=*) style_strikethrough=$(parse_bool "${1#*=}"); shift ;;
             --strikethrough)   style_strikethrough="true"; shift ;;
             
-            -h|--help)        show_help_panel; return 0 ;;
-            
-            -*) echo "Error: unknown flag: $1" >&2; return 1 ;;
-            
-            *)  args_text+=("$1"); shift ;;
+            -h|--help)         show_help_panel; return 0 ;;
+            -*)                die "Bandera desconocida: '$1'." ;;
+            *)                 args_text+=("$1"); shift ;;
         esac
     done
 
     check_literal "align" "$align" "left" "center" "right" || return 1
     check_literal "dir" "$direction" "ltr" "rtl" || return 1
     check_literal "bg-dir" "$bg_direction" "ltr" "rtl" || return 1
+
+    function _die_bad_color() {
+        local flag="$1" val="$2"
+        die "Color inválido en '${flag}': '${val}'. Colores disponibles: $(_list_color_names)"
+    }
+
+    if [[ -n "$foreground" ]] && ! is_valid_color "$foreground"; then
+        _die_bad_color "--foreground" "$foreground"
+    fi
+    if [[ -n "$background" ]] && ! is_valid_color "$background"; then
+        _die_bad_color "--background" "$background"
+    fi
+    if [[ -n "$gradient" ]]; then
+        local _g1="${gradient%%,*}" _g2="${gradient##*,}"
+        is_valid_color "$_g1" || _die_bad_color "--gradient" "$_g1"
+        is_valid_color "$_g2" || _die_bad_color "--gradient" "$_g2"
+    fi
+    if [[ -n "$bg_gradient" ]]; then
+        local _bg1="${bg_gradient%%,*}" _bg2="${bg_gradient##*,}"
+        is_valid_color "$_bg1" || _die_bad_color "--bg-gradient" "$_bg1"
+        is_valid_color "$_bg2" || _die_bad_color "--bg-gradient" "$_bg2"
+    fi
 
     local content=""
     if [[ ${#args_text[@]} -gt 0 ]]; then
@@ -170,15 +388,309 @@ EOF
         content=$(cat)
     fi
 
-    if [[ -z "$content" ]]; then return 0; fi
+    [[ -z "$content" ]] && return 0
 
-    if [[ "$user_set_color" == "false" ]]; then
-        gradient="#AA6EE6,#5A3C96"
-        direction="ltr"
+    local cur_bold=0 cur_italic=0 cur_ul=0 cur_strike=0
+    [[ "$style_bold" == "true" ]] && cur_bold=1
+    [[ "$style_italic" == "true" ]] && cur_italic=1
+    [[ "$style_underline" == "true" ]] && cur_ul=1
+    [[ "$style_strikethrough" == "true" ]] && cur_strike=1
+
+    local cur_fg="" cur_fg_grad="" cur_dir="$direction"
+    if [[ -n "$foreground" ]]; then cur_fg="$foreground"
+    elif [[ -n "$gradient" ]]; then cur_fg_grad="$gradient"
     fi
 
-    local clean_content=$(strip_ansi "$content")
-    local len=${#clean_content}
+    local cur_bg="" cur_bg_grad="" cur_bg_dir="$bg_direction"
+    if [[ -n "$background" ]]; then cur_bg="$background"
+    elif [[ -n "$bg_gradient" ]]; then cur_bg_grad="$bg_gradient"
+    fi
+
+    local active_hypr_url=""
+    local active_hypr_text=""
+    local in_hypr=false
+
+    function _err_unclosed() { echo "Error de sintaxis: tag sin cerrar -> '$1'" >&2; echo "  Falta el ']' que lo cierre." >&2; }
+    function _err_unopened() { echo "Error de sintaxis: se encontró ']' sin un '[' que lo haya abierto -> '$1'" >&2; }
+    function _err_gradient_format() { echo "Error de sintaxis: [$1] espera dos colores separados por coma -> color1,color2" >&2; }
+    function _err_hypr_format() { echo "Error de sintaxis: [hypr] espera URL y Texto separados por coma -> [hypr=https://google.com,Enlace]" >&2; }
+    
+    function _err_color() {
+        local key="$1" val="$2"
+        echo "Error de sintaxis: color inválido en [$key]: \"$val\"" >&2
+        echo "  Colores disponibles: black, red, green, yellow, blue, magenta (purple)," >&2
+        echo "                       cyan, white, gray (grey), brightblack, brightred," >&2
+        echo "                       brightgreen, brightyellow, brightblue, brightmagenta," >&2
+        echo "                       brightcyan, brightwhite" >&2
+        echo "  También válido: hex (#RRGGBB o #RGB), código 0-255, o nombres CSS (coral," >&2
+        echo "                  mediumseagreen, rebeccapurple, etc)." >&2
+        echo "  Lista completa de nombres CSS: $(_list_color_names)" >&2
+    }
+
+    function _err_direction() {
+        local key="$1" val="$2"
+        echo "Error de sintaxis: valor inválido en [$key]: \"$val\"" >&2
+        echo "  Valores disponibles: ltr, rtl" >&2
+    }
+
+    function _err_unknown_tag() {
+        local key="$1" full="$2"
+        case "$key" in
+            fg.*)
+                if [[ "$key" != "fg.grad" ]]; then
+                    echo "Error de sintaxis: 'fg' no tiene el atributo '${key#fg.}'." >&2
+                    echo "  Atributos disponibles para 'fg': grad" >&2; return
+                fi ;;
+            foreground.*)
+                if [[ "$key" != "foreground.gradient" ]]; then
+                    echo "Error de sintaxis: 'foreground' no tiene el atributo '${key#foreground.}'." >&2
+                    echo "  Atributos disponibles para 'foreground': gradient" >&2; return
+                fi ;;
+            bg.*)
+                if [[ "$key" != "bg.grad" && "$key" != "bg.dir" ]]; then
+                    echo "Error de sintaxis: 'bg' no tiene el atributo '${key#bg.}'." >&2
+                    echo "  Atributos disponibles para 'bg': grad, dir" >&2; return
+                fi ;;
+            background.*)
+                if [[ "$key" != "background.gradient" && "$key" != "background.direction" ]]; then
+                    echo "Error de sintaxis: 'background' no tiene el atributo '${key#background.}'." >&2
+                    echo "  Atributos disponibles para 'background': gradient, direction" >&2; return
+                fi ;;
+        esac
+        echo "Error de sintaxis: tag desconocido -> \"[$full]\"" >&2
+        echo "  Tags disponibles: bold(b), italic(i), underline(u), strikethrough(strike/s), reset(end)," >&2
+        echo "                    fg(foreground), bg(background), fg.grad(foreground.gradient)," >&2
+        echo "                    bg.grad(background.gradient), dir(direction), bg.dir(background.direction)," >&2
+        echo "                    hypr(hyperlink)" >&2
+        echo "  Tip: si querías imprimir un corchete literal, escapalo: \[ y \]" >&2
+    }
+
+    local chars=()
+    local fg_styles=()
+    local bg_styles=()
+    local txt_styles=()
+    local hypr_urls=()
+    
+    local grad_defs=() 
+    local grad_counts=()
+    local grad_r1=() grad_g1=() grad_b1=()   
+    local grad_r2=() grad_g2=() grad_b2=()  
+    local grad_dir=()       
+    local grad_counter=1
+    
+    local cur_fg_grad_id=0
+    local cur_bg_grad_id=0
+
+    if [[ -n "$cur_fg_grad" ]]; then
+        local _c1="${cur_fg_grad%%,*}" _c2="${cur_fg_grad##*,}"
+        _register_gradient "$grad_counter" "$_c1" "$_c2" "$cur_dir"
+        cur_fg_grad_id=$grad_counter
+        ((grad_counter++))
+    fi
+    if [[ -n "$cur_bg_grad" ]]; then
+        local _c1="${cur_bg_grad%%,*}" _c2="${cur_bg_grad##*,}"
+        _register_gradient "$grad_counter" "$_c1" "$_c2" "$cur_bg_dir"
+        cur_bg_grad_id=$grad_counter
+        ((grad_counter++))
+    fi
+
+    function _push_char() {
+        chars+=("$1")
+        local s_str=""
+        ((cur_bold)) && s_str+="1;"
+        ((cur_italic)) && s_str+="3;"
+        ((cur_ul)) && s_str+="4;"
+        ((cur_strike)) && s_str+="9;"
+        txt_styles+=("$s_str")
+        
+        local f_str=""
+        if [[ -n "$cur_fg_grad" ]]; then 
+            f_str="grad:$cur_fg_grad_id"
+            ((grad_counts[$cur_fg_grad_id]++))
+        elif [[ -n "$cur_fg" ]]; then f_str="solid:$cur_fg"
+        fi
+        fg_styles+=("$f_str")
+        
+        local b_str=""
+        if [[ -n "$cur_bg_grad" ]]; then 
+            b_str="grad:$cur_bg_grad_id"
+            ((grad_counts[$cur_bg_grad_id]++))
+        elif [[ -n "$cur_bg" ]]; then b_str="solid:$cur_bg"
+        fi
+        bg_styles+=("$b_str")
+
+        if [[ "$in_hypr" == "true" ]]; then
+            hypr_urls+=("$active_hypr_url")
+        else
+            hypr_urls+=("NONE")
+        fi
+    }
+
+    local text=$(strip_ansi "$content")
+
+    local text_len=${#text}
+    local text_i=0
+
+    while (( text_i < text_len )); do
+        local c="${text:text_i:1}"
+
+        if [[ "$c" == '\' && $(( text_i + 1 )) -lt $text_len ]]; then
+            local nc="${text:$((text_i+1)):1}"
+            if [[ "$nc" == "[" || "$nc" == "]" || "$nc" == '\' ]]; then
+                _push_char "$nc"
+                (( text_i += 2 ))
+                continue
+            fi
+        fi
+
+        if [[ "$c" == "[" ]]; then
+            local rest="${text:text_i}"
+            if [[ "$rest" != *"]"* ]]; then
+                _err_unclosed "$rest"
+                return 1
+            fi
+
+            local tag="${rest%%\]*}"
+            tag="${tag#\[}"
+            local consumed=$(( ${#tag} + 2 ))
+
+            local key="$tag" val=""
+            if [[ "$tag" == *=* ]]; then
+                key="${tag%%=*}"
+                val="${tag#*=}"
+            fi
+
+            case "$tag" in
+                bold|b) cur_bold=1 ;;
+                /bold|/b) cur_bold=0 ;;
+                italic|i) cur_italic=1 ;;
+                /italic|/i) cur_italic=0 ;;
+                underline|u) cur_ul=1 ;;
+                /underline|/u) cur_ul=0 ;;
+                strikethrough|strike|s) cur_strike=1 ;;
+                /strikethrough|/strike|/s) cur_strike=0 ;;
+                reset|end) 
+                    cur_bold=0; cur_italic=0; cur_ul=0; cur_strike=0
+                    cur_fg=""; cur_fg_grad=""; cur_dir="ltr"
+                    cur_bg=""; cur_bg_grad=""; cur_bg_dir="ltr"
+                    ;;
+                fg=*|foreground=*) 
+                    if is_valid_color "$val"; then
+                        cur_fg="$val"; cur_fg_grad=""
+                    else
+                        _err_color "$key" "$val"
+                        return 1
+                    fi
+                    ;;
+                bg=*|background=*) 
+                    if is_valid_color "$val"; then
+                        cur_bg="$val"; cur_bg_grad=""
+                    else
+                        _err_color "$key" "$val"
+                        return 1
+                    fi
+                    ;;
+                fg.grad=*|foreground.gradient=*) 
+                    if [[ "$val" == *,* ]]; then
+                        local c1="${val%%,*}"; local c2="${val##*,}"
+                        if is_valid_color "$c1" && is_valid_color "$c2"; then
+                            cur_fg_grad="$val"; cur_fg=""
+                            _register_gradient "$grad_counter" "$c1" "$c2" "$cur_dir"
+                            cur_fg_grad_id=$grad_counter
+                            ((grad_counter++))
+                        else
+                            is_valid_color "$c1" || _err_color "$key" "$c1"
+                            is_valid_color "$c2" || _err_color "$key" "$c2"
+                            return 1
+                        fi
+                    else
+                        _err_gradient_format "$key"
+                        return 1
+                    fi
+                    ;;
+                bg.grad=*|background.gradient=*) 
+                    if [[ "$val" == *,* ]]; then
+                        local c1="${val%%,*}"; local c2="${val##*,}"
+                        if is_valid_color "$c1" && is_valid_color "$c2"; then
+                            cur_bg_grad="$val"; cur_bg=""
+                            _register_gradient "$grad_counter" "$c1" "$c2" "$cur_bg_dir"
+                            cur_bg_grad_id=$grad_counter
+                            ((grad_counter++))
+                        else
+                            is_valid_color "$c1" || _err_color "$key" "$c1"
+                            is_valid_color "$c2" || _err_color "$key" "$c2"
+                            return 1
+                        fi
+                    else
+                        _err_gradient_format "$key"
+                        return 1
+                    fi
+                    ;;
+                dir=*|direction=*) 
+                    if [[ "$val" == "ltr" || "$val" == "rtl" ]]; then
+                        cur_dir="$val"
+                        if [[ -n "$cur_fg_grad" ]]; then grad_dir[$cur_fg_grad_id]="$cur_dir"; fi
+                    else
+                        _err_direction "$key" "$val"
+                        return 1
+                    fi
+                    ;;
+                bg.dir=*|background.direction=*)
+                    if [[ "$val" == "ltr" || "$val" == "rtl" ]]; then
+                        cur_bg_dir="$val"
+                        if [[ -n "$cur_bg_grad" ]]; then grad_dir[$cur_bg_grad_id]="$cur_bg_dir"; fi
+                    else
+                        _err_direction "$key" "$val"
+                        return 1
+                    fi
+                    ;;
+                hypr=*)
+                    if [[ "$val" == *,* ]]; then
+                        local url="${val%%,*}"
+                        local text="${val#*,}"
+                        
+                        # Si no hay color definido por el usuario o no estamos en gradiente, usar azul por defecto para links
+                        local backup_fg="$cur_fg"
+                        if [[ -z "$cur_fg" && -z "$cur_fg_grad" ]]; then
+                            cur_fg="blue"
+                        fi
+                        
+                        in_hypr=true
+                        active_hypr_url="$url"
+                        # Extraer los caracteres del texto del hipervínculo y empujarlos al render
+                        local text_hypr_len=${#text}
+                        for (( hi=0; hi<text_hypr_len; hi++ )); do
+                            _push_char "${text:hi:1}"
+                        done
+                        
+                        in_hypr=false
+                        cur_fg="$backup_fg"
+                    else
+                        _err_hypr_format
+                        return 1
+                    fi
+                    ;;
+                *)
+                    _err_unknown_tag "$key" "$tag"
+                    return 1
+                    ;;
+            esac
+
+            (( text_i += consumed ))
+            continue
+        fi
+
+        if [[ "$c" == "]" ]]; then
+            _err_unopened "]"
+            return 1
+        fi
+
+        _push_char "$c"
+        (( text_i++ ))
+    done
+
+    # ─── RENDER ENGINE (Pass 2) — OPTIMIZADO: cero subshells por carácter ───
+    local len=${#chars[@]}
     local term_cols=$(tput cols 2>/dev/null || echo 80)
     local padding=0
     
@@ -192,84 +704,121 @@ EOF
     local pad_str=""
     if (( padding > 0 )); then printf -v pad_str "%${padding}s" ""; fi
 
-    local fg_r1=255 fg_g1=255 fg_b1=255
-    local fg_r2=255 fg_g2=255 fg_b2=255
-    local has_fg=false
+    local output_parts=()
+    [[ -n "$pad_str" ]] && output_parts+=("$pad_str")
 
-    if [[ -n "$foreground" ]]; then
-        read fg_r1 fg_g1 fg_b1 <<< "$(hex_to_rgb "$foreground")"
-        fg_r2=$fg_r1; fg_g2=$fg_g1; fg_b2=$fg_b1
-        has_fg=true
-    elif [[ -n "$gradient" ]]; then
-        has_fg=true
-        local c1="${gradient%%,*}"; local c2="${gradient##*,}"
-        local rgb1=$(hex_to_rgb "$c1"); local rgb2=$(hex_to_rgb "$c2")
-        
-        if [[ "$direction" == "ltr" ]]; then
-            read fg_r1 fg_g1 fg_b1 <<< "$rgb1"
-            read fg_r2 fg_g2 fg_b2 <<< "$rgb2"
-        else
-            read fg_r1 fg_g1 fg_b1 <<< "$rgb2"
-            read fg_r2 fg_g2 fg_b2 <<< "$rgb1"
-        fi
-    fi
+    local grad_positions=()
+    local currently_in_hypr="NONE"
 
-    local bg_r1=0 bg_g1=0 bg_b1=0
-    local bg_r2=0 bg_g2=0 bg_b2=0
-    local has_bg=false
+    local _resolve_result=""
+    local _color_seq_result=""
 
-    if [[ -n "$background" ]]; then
-        read bg_r1 bg_g1 bg_b1 <<< "$(hex_to_rgb "$background")"
-        bg_r2=$bg_r1; bg_g2=$bg_g1; bg_b2=$bg_b1
-        has_bg=true
-    elif [[ -n "$bg_gradient" ]]; then
-        has_bg=true
-        local c1="${bg_gradient%%,*}"; local c2="${bg_gradient##*,}"
-        local rgb1=$(hex_to_rgb "$c1"); local rgb2=$(hex_to_rgb "$c2")
-        
-        if [[ "$bg_direction" == "ltr" ]]; then
-            read bg_r1 bg_g1 bg_b1 <<< "$rgb1"
-            read bg_r2 bg_g2 bg_b2 <<< "$rgb2"
-        else
-            read bg_r1 bg_g1 bg_b1 <<< "$rgb2"
-            read bg_r2 bg_g2 bg_b2 <<< "$rgb1"
-        fi
-    fi
-
-    local style_seq=""
-    [[ "$style_bold" == "true" ]] && style_seq+="1;"
-    [[ "$style_italic" == "true" ]] && style_seq+="3;"
-    [[ "$style_underline" == "true" ]] && style_seq+="4;"
-    [[ "$style_strikethrough" == "true" ]] && style_seq+="9;"
-
-    
-    printf "%s" "$pad_str"
-
-    local div=$(( len - 1 ))
-    [[ $div -lt 1 ]] && div=1
+    local ch ansi_seq h_url ts f bgv id total step div
+    local r1 g1 b1 r2 g2 b2 tr tg tb r g b bb
+    local prev_ts="" prev_f="" prev_bg=""
+    local is_grad_f is_grad_bg style_unchanged
 
     for ((i=0; i<len; i++)); do
-        local ch="${clean_content:i:1}"
-        local ansi_seq="${ESC}[${style_seq}"
+        ch="${chars[i]}"
+        h_url="${hypr_urls[i]}"
+        ts="${txt_styles[i]}"
+        f="${fg_styles[i]}"
+        bgv="${bg_styles[i]}"
 
-        if [[ "$has_fg" == "true" ]]; then
-            local fr=$(( fg_r1 + (fg_r2 - fg_r1) * i / div ))
-            local fg=$(( fg_g1 + (fg_g2 - fg_g1) * i / div ))
-            local fb=$(( fg_b1 + (fg_b2 - fg_b1) * i / div ))
-            ansi_seq+="38;2;${fr};${fg};${fb};"
+        [[ "$f" == grad:* ]] && is_grad_f=true || is_grad_f=false
+        [[ "$bgv" == grad:* ]] && is_grad_bg=true || is_grad_bg=false
+
+        if [[ "$h_url" == "$currently_in_hypr" && "$is_grad_f" == "false" && "$is_grad_bg" == "false" \
+              && "$ts" == "$prev_ts" && "$f" == "$prev_f" && "$bgv" == "$prev_bg" ]]; then
+            output_parts+=("$ch")
+            continue
         fi
 
-        if [[ "$has_bg" == "true" ]]; then
-            local br=$(( bg_r1 + (bg_r2 - bg_r1) * i / div ))
-            local bg=$(( bg_g1 + (bg_g2 - bg_g1) * i / div ))
-            local bb=$(( bg_b1 + (bg_b2 - bg_b1) * i / div ))
-            ansi_seq+="48;2;${br};${bg};${bb};"
+        ansi_seq="${ESC}[0m"
+
+        # Lógica OSC 8 para Hipervínculos
+        if [[ "$h_url" != "$currently_in_hypr" ]]; then
+            if [[ "$h_url" == "NONE" ]]; then
+                ansi_seq+="${ESC}]8;;${ESC}\\" # Cerrar link
+            else
+                ansi_seq+="${ESC}]8;;${h_url}${ESC}\\" # Abrir link
+            fi
+            currently_in_hypr="$h_url"
         fi
 
-        ansi_seq="${ansi_seq%;}m" 
-        printf "${ansi_seq}%s" "$ch"
+        if [[ -n "$ts" ]]; then
+            ansi_seq+="${ESC}[${ts%;}m"
+        fi
+
+        if [[ "$f" == solid:* ]]; then
+            resolve_color "${f#solid:}"
+            _color_seq "$_resolve_result" 38
+            ansi_seq+="$_color_seq_result"
+        elif [[ "$is_grad_f" == "true" ]]; then
+            id="${f#grad:}"
+
+            total="${grad_counts[id]}"
+            step="${grad_positions[id]:-0}"
+            ((grad_positions[id]++))
+
+            div=$(( total - 1 ))
+            (( div < 1 )) && div=1
+
+            r1="${grad_r1[id]}"; g1="${grad_g1[id]}"; b1="${grad_b1[id]}"
+            r2="${grad_r2[id]}"; g2="${grad_g2[id]}"; b2="${grad_b2[id]}"
+
+            if [[ "${grad_dir[id]}" == "rtl" ]]; then
+                tr=$r1; tg=$g1; tb=$b1; r1=$r2; g1=$g2; b1=$b2; r2=$tr; g2=$tg; b2=$tb
+            fi
+
+            r=$(( r1 + (r2 - r1) * step / div ))
+            g=$(( g1 + (g2 - g1) * step / div ))
+            b=$(( b1 + (b2 - b1) * step / div ))
+            ansi_seq+="${ESC}[38;2;${r};${g};${b}m"
+        fi
+
+        if [[ "$bgv" == solid:* ]]; then
+            resolve_color "${bgv#solid:}"
+            _color_seq "$_resolve_result" 48
+            ansi_seq+="$_color_seq_result"
+        elif [[ "$is_grad_bg" == "true" ]]; then
+            id="${bgv#grad:}"
+
+            total="${grad_counts[id]}"
+            step="${grad_positions[id]:-0}"
+
+            div=$(( total - 1 ))
+            (( div < 1 )) && div=1
+
+            r1="${grad_r1[id]}"; g1="${grad_g1[id]}"; b1="${grad_b1[id]}"
+            r2="${grad_r2[id]}"; g2="${grad_g2[id]}"; b2="${grad_b2[id]}"
+
+            if [[ "${grad_dir[id]}" == "rtl" ]]; then
+                tr=$r1; tg=$g1; tb=$b1; r1=$r2; g1=$g2; b1=$b2; r2=$tr; g2=$tg; b2=$tb
+            fi
+
+            r=$(( r1 + (r2 - r1) * step / div ))
+            g=$(( g1 + (g2 - g1) * step / div ))
+            bb=$(( b1 + (b2 - b1) * step / div ))
+            ansi_seq+="${ESC}[48;2;${r};${g};${bb}m"
+
+            ((grad_positions[id]++))
+        fi
+
+        output_parts+=("${ansi_seq}${ch}")
+        prev_ts="$ts"; prev_f="$f"; prev_bg="$bgv"
     done
-    echo -e "${ESC}[0m"
+
+    # Cierre de seguridad por si el string terminó dentro de un link
+    if [[ "$currently_in_hypr" != "NONE" ]]; then
+        output_parts+=("${ESC}]8;;${ESC}\\")
+    fi
+
+    output_parts+=("${ESC}[0m")
+
+    local final_output
+    printf -v final_output '%s' "${output_parts[@]}"
+    printf "%s\n" "$final_output"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

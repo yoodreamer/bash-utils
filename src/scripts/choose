@@ -1,19 +1,257 @@
 #!/usr/bin/env bash
 
 function cmd_choose() {
-    
-    function make_ansi() {
-        local fg=$1; local bg=$2; local seq=""
-        [[ -n "$fg" ]] && seq+="\e[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="\e[48;5;${bg}m"
-        echo "$seq"
+    local ESC=$'\e'
+    local NL=$'\n'
+    local CR=$'\r'
+
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
     }
 
-    local options=()
-    local limit=1         
+
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0 
+        local -r ESC=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) 
+                    case "$c" in
+                        "$ESC") state=1 ;;
+                        "$BEL") : ;;
+                        *) out+="$c" ;;
+                    esac
+                    ;;
+                1)
+                    case "$c" in
+                        '[') state=2 ;;
+                        ']') state=3 ;;
+                        '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                        "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>')
+                            state=0 ;;
+                        *)
+                            out+="${ESC}${c}"
+                            state=0
+                            ;;
+                    esac
+                    ;;
+                2) 
+                    case "$c" in
+                        ';'|'?'|[0-9]) : ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                3) 
+                    case "$c" in
+                        [0-9]) state=4 ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                4) 
+                    case "$c" in
+                        "$BEL") state=0 ;;
+                        "$ESC") state=5 ;;
+                    esac
+                    ;;
+                5) 
+                    state=0
+                    ;;
+            esac
+        done
+
+        printf '%s' "$out"
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS
+        _CSS_COLORS["aliceblue"]="f0f8ff"        _CSS_COLORS["antiquewhite"]="faebd7"
+        _CSS_COLORS["aqua"]="00ffff"             _CSS_COLORS["aquamarine"]="7fffd4"
+        _CSS_COLORS["azure"]="f0ffff"            _CSS_COLORS["beige"]="f5f5dc"
+        _CSS_COLORS["bisque"]="ffe4c4"           _CSS_COLORS["black"]="000000"
+        _CSS_COLORS["blanchedalmond"]="ffebcd"   _CSS_COLORS["blue"]="0000ff"
+        _CSS_COLORS["blueviolet"]="8a2be2"       _CSS_COLORS["brown"]="a52a2a"
+        _CSS_COLORS["burlywood"]="deb887"        _CSS_COLORS["cadetblue"]="5f9ea0"
+        _CSS_COLORS["chartreuse"]="7fff00"       _CSS_COLORS["chocolate"]="d2691e"
+        _CSS_COLORS["coral"]="ff7f50"            _CSS_COLORS["cornflowerblue"]="6495ed"
+        _CSS_COLORS["cornsilk"]="fff8dc"         _CSS_COLORS["crimson"]="dc143c"
+        _CSS_COLORS["cyan"]="00ffff"             _CSS_COLORS["darkblue"]="00008b"
+        _CSS_COLORS["darkcyan"]="008b8b"         _CSS_COLORS["darkgoldenrod"]="b8860b"
+        _CSS_COLORS["darkgray"]="a9a9a9"         _CSS_COLORS["darkgreen"]="006400"
+        _CSS_COLORS["darkgrey"]="a9a9a9"         _CSS_COLORS["darkkhaki"]="bdb76b"
+        _CSS_COLORS["darkmagenta"]="8b008b"      _CSS_COLORS["darkolivegreen"]="556b2f"
+        _CSS_COLORS["darkorange"]="ff8c00"       _CSS_COLORS["darkorchid"]="9932cc"
+        _CSS_COLORS["darkred"]="8b0000"          _CSS_COLORS["darksalmon"]="e9967a"
+        _CSS_COLORS["darkseagreen"]="8fbc8f"     _CSS_COLORS["darkslateblue"]="483d8b"
+        _CSS_COLORS["darkslategray"]="2f4f4f"    _CSS_COLORS["darkslategrey"]="2f4f4f"
+        _CSS_COLORS["darkturquoise"]="00ced1"    _CSS_COLORS["darkviolet"]="9400d3"
+        _CSS_COLORS["deeppink"]="ff1493"         _CSS_COLORS["deepskyblue"]="00bfff"
+        _CSS_COLORS["dimgray"]="696969"          _CSS_COLORS["dimgrey"]="696969"
+        _CSS_COLORS["dodgerblue"]="1e90ff"       _CSS_COLORS["firebrick"]="b22222"
+        _CSS_COLORS["floralwhite"]="fffaf0"      _CSS_COLORS["forestgreen"]="228b22"
+        _CSS_COLORS["fuchsia"]="ff00ff"          _CSS_COLORS["gainsboro"]="dcdcdc"
+        _CSS_COLORS["ghostwhite"]="f8f8ff"       _CSS_COLORS["gold"]="ffd700"
+        _CSS_COLORS["goldenrod"]="daa520"        _CSS_COLORS["gray"]="808080"
+        _CSS_COLORS["green"]="008000"            _CSS_COLORS["greenyellow"]="adff2f"
+        _CSS_COLORS["grey"]="808080"             _CSS_COLORS["honeydew"]="f0fff0"
+        _CSS_COLORS["hotpink"]="ff69b4"          _CSS_COLORS["indianred"]="cd5c5c"
+        _CSS_COLORS["indigo"]="4b0082"           _CSS_COLORS["ivory"]="fffff0"
+        _CSS_COLORS["khaki"]="f0e68c"            _CSS_COLORS["lavender"]="e6e6fa"
+        _CSS_COLORS["lavenderblush"]="fff0f5"    _CSS_COLORS["lawngreen"]="7cfc00"
+        _CSS_COLORS["lemonchiffon"]="fffacd"     _CSS_COLORS["lightblue"]="add8e6"
+        _CSS_COLORS["lightcoral"]="f08080"       _CSS_COLORS["lightcyan"]="e0ffff"
+        _CSS_COLORS["lightgoldenrodyellow"]="fafad2" _CSS_COLORS["lightgray"]="d3d3d3"
+        _CSS_COLORS["lightgreen"]="90ee90"       _CSS_COLORS["lightgrey"]="d3d3d3"
+        _CSS_COLORS["lightpink"]="ffb6c1"        _CSS_COLORS["lightsalmon"]="ffa07a"
+        _CSS_COLORS["lightseagreen"]="20b2aa"    _CSS_COLORS["lightskyblue"]="87cefa"
+        _CSS_COLORS["lightslategray"]="778899"   _CSS_COLORS["lightslategrey"]="778899"
+        _CSS_COLORS["lightsteelblue"]="b0c4de"   _CSS_COLORS["lightyellow"]="ffffe0"
+        _CSS_COLORS["lime"]="00ff00"             _CSS_COLORS["limegreen"]="32cd32"
+        _CSS_COLORS["linen"]="faf0e6"            _CSS_COLORS["magenta"]="ff00ff"
+        _CSS_COLORS["maroon"]="800000"           _CSS_COLORS["mediumaquamarine"]="66cdaa"
+        _CSS_COLORS["mediumblue"]="0000cd"       _CSS_COLORS["mediumorchid"]="ba55d3"
+        _CSS_COLORS["mediumpurple"]="9370db"     _CSS_COLORS["mediumseagreen"]="3cb371"
+        _CSS_COLORS["mediumslateblue"]="7b68ee"  _CSS_COLORS["mediumspringgreen"]="00fa9a"
+        _CSS_COLORS["mediumturquoise"]="48d1cc"  _CSS_COLORS["mediumvioletred"]="c71585"
+        _CSS_COLORS["midnightblue"]="191970"     _CSS_COLORS["mintcream"]="f5fffa"
+        _CSS_COLORS["mistyrose"]="ffe4e1"        _CSS_COLORS["moccasin"]="ffe4b5"
+        _CSS_COLORS["navajowhite"]="ffdead"      _CSS_COLORS["navy"]="000080"
+        _CSS_COLORS["oldlace"]="fdf5e6"          _CSS_COLORS["olive"]="808000"
+        _CSS_COLORS["olivedrab"]="6b8e23"        _CSS_COLORS["orange"]="ffa500"
+        _CSS_COLORS["orangered"]="ff4500"        _CSS_COLORS["orchid"]="da70d6"
+        _CSS_COLORS["palegoldenrod"]="eee8aa"    _CSS_COLORS["palegreen"]="98fb98"
+        _CSS_COLORS["paleturquoise"]="afeeee"    _CSS_COLORS["palevioletred"]="db7093"
+        _CSS_COLORS["papayawhip"]="ffefd5"       _CSS_COLORS["peachpuff"]="ffdab9"
+        _CSS_COLORS["peru"]="cd853f"             _CSS_COLORS["pink"]="ffc0cb"
+        _CSS_COLORS["plum"]="dda0dd"             _CSS_COLORS["powderblue"]="b0e0e6"
+        _CSS_COLORS["purple"]="800080"           _CSS_COLORS["rebeccapurple"]="663399"
+        _CSS_COLORS["red"]="ff0000"              _CSS_COLORS["rosybrown"]="bc8f8f"
+        _CSS_COLORS["royalblue"]="4169e1"        _CSS_COLORS["saddlebrown"]="8b4513"
+        _CSS_COLORS["salmon"]="fa8072"           _CSS_COLORS["sandybrown"]="f4a460"
+        _CSS_COLORS["seagreen"]="2e8b57"         _CSS_COLORS["seashell"]="fff5ee"
+        _CSS_COLORS["sienna"]="a0522d"           _CSS_COLORS["silver"]="c0c0c0"
+        _CSS_COLORS["skyblue"]="87ceeb"          _CSS_COLORS["slateblue"]="6a5acd"
+        _CSS_COLORS["slategray"]="708090"        _CSS_COLORS["slategrey"]="708090"
+        _CSS_COLORS["snow"]="fffafa"             _CSS_COLORS["springgreen"]="00ff7f"
+        _CSS_COLORS["steelblue"]="4682b4"        _CSS_COLORS["tan"]="d2b48c"
+        _CSS_COLORS["teal"]="008080"             _CSS_COLORS["thistle"]="d8bfd8"
+        _CSS_COLORS["tomato"]="ff6347"           _CSS_COLORS["turquoise"]="40e0d0"
+        _CSS_COLORS["violet"]="ee82ee"           _CSS_COLORS["wheat"]="f5deb3"
+        _CSS_COLORS["white"]="ffffff"            _CSS_COLORS["whitesmoke"]="f5f5f5"
+        _CSS_COLORS["yellow"]="ffff00"           _CSS_COLORS["yellowgreen"]="9acd32"
+        _CSS_COLORS_INIT=1
+    }
+
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+
+    function strict_bool() {
+        local val="${1,,}"
+        case "$val" in
+            true|1|yes) printf "true" ;;
+            false|0|no) printf "false" ;;
+            *) printf "INVALID" ;;
+        esac
+    }
+
+    function _color_seq() {
+        local val="${1,,}" layer="$2"
+        [[ -z "$val" || "$val" == "none" || "$val" == "clear" ]] && return
+        if [[ "$val" == \#* ]]; then
+            local hex="${val#\#}"
+            [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+            local r=$(( 16#${hex:0:2} ))
+            local g=$(( 16#${hex:2:2} ))
+            local b=$(( 16#${hex:4:2} ))
+            printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+        elif [[ "$val" =~ ^[0-9]+$ ]]; then
+            printf "${ESC}[%d;5;%dm" "$layer" "$val"
+        else
+            local base=0
+            [[ "$layer" == 38 ]] && base=30
+            [[ "$layer" == 48 ]] && base=40
+            case "$val" in
+                black)                 printf "${ESC}[%dm" $((base + 0)) ;;
+                red)                   printf "${ESC}[%dm" $((base + 1)) ;;
+                green)                 printf "${ESC}[%dm" $((base + 2)) ;;
+                yellow)                printf "${ESC}[%dm" $((base + 3)) ;;
+                blue)                  printf "${ESC}[%dm" $((base + 4)) ;;
+                magenta|purple)        printf "${ESC}[%dm" $((base + 5)) ;;
+                cyan)                  printf "${ESC}[%dm" $((base + 6)) ;;
+                white)                 printf "${ESC}[%dm" $((base + 7)) ;;
+                gray|grey|brightblack) printf "${ESC}[%dm" $((base + 60)) ;;
+                brightred)             printf "${ESC}[%dm" $((base + 61)) ;;
+                brightgreen)           printf "${ESC}[%dm" $((base + 62)) ;;
+                brightyellow)          printf "${ESC}[%dm" $((base + 63)) ;;
+                brightblue)            printf "${ESC}[%dm" $((base + 64)) ;;
+                brightmagenta|brightpurple) printf "${ESC}[%dm" $((base + 65)) ;;
+                brightcyan)            printf "${ESC}[%dm" $((base + 66)) ;;
+                brightwhite)           printf "${ESC}[%dm" $((base + 67)) ;;
+                *)
+                    _css_init
+                    local hex="${_CSS_COLORS[$val]:-}"
+                    if [[ -n "$hex" ]]; then
+                        local r=$(( 16#${hex:0:2} ))
+                        local g=$(( 16#${hex:2:2} ))
+                        local b=$(( 16#${hex:4:2} ))
+                        printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+                    fi
+                    ;;
+            esac
+        fi
+    }
+
+    function _list_color_names() {
+        _css_init
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g' 
+    }
+
+
+    function make_ansi() {
+        local fg="$1" bg="$2"
+        _color_seq "$fg" 38
+        _color_seq "$bg" 48
+    }
+
+    local limit=1          
     local height=10
     local cursor_char="> "
-    local header=""
+    local header="Choose: "
+    local timeout=0
     
     local cursor_prefix="• " 
     local selected_prefix="✓ "
@@ -23,7 +261,13 @@ function cmd_choose() {
     local show_help=true
     local pre_selected=""
     local output_delimiter=$'\n' 
+    local input_delimiter=$'\n'
+    local label_delimiter=""
+    local strip_ansi_flag=false
+    local select_if_one=false
     
+    local padding="0 0 0 0"
+
     local c_cursor_fg="212"     ; local c_cursor_bg=""
     local c_header_fg="99"      ; local c_header_bg=""
     local c_item_fg=""          ; local c_item_bg=""     
@@ -39,88 +283,182 @@ Arguments:
   [<options> ...]    Options to choose from.
 
 Flags:
-  -h, --help                Show context-sensitive help.
-      --limit=1             Maximum number of options to pick (0 for no limit)
-      --no-limit            Pick unlimited number of options
-      --height=10           Height of the list
-      --cursor="> "         Prefix for cursor position
-      --header=""           Header value
-      --selected=""         Options to start selected (comma separated)
-      --ordered             Maintain order of selected options
-      --no-show-help        Hide help keybinds
+  -h, --help                        Show context-sensitive help.
+      --ordered                     Maintain the order of the selected options
+      --height=10                   Height of the list
+      --cursor="> "                 Prefix to show on item that corresponds to the cursor position
+      --[no-]show-help              Show help keybinds
+      --timeout=0s                  Timeout until choose returns selected element
+      --header="Choose:"            Header value
+      --cursor-prefix="• "          Prefix to show on the cursor item (hidden if limit is 1)
+      --selected-prefix="✓ "        Prefix to show on selected items (hidden if limit is 1)
+      --unselected-prefix="• "      Prefix to show on unselected items (hidden if limit is 1)
+      --selected=,...               Options that should start as selected (selects all if given *)
+      --input-delimiter="\n"        Option delimiter when reading from STDIN
+      --output-delimiter="\n"       Option delimiter when writing to STDOUT
+      --label-delimiter=""          Allows to set a delimiter, so options can be set as label:value
+      --[no-]strip-ansi             Strip ANSI sequences when reading from STDIN
 
-Style Flags:
-  --cursor.foreground       Foreground Color
-  --header.foreground       Foreground Color
-  --item.foreground         Foreground Color
-  --selected.foreground     Foreground Color
+Selection
+  --limit=1                  Maximum number of options to pick
+  --no-limit                 Pick unlimited number of options (ignores limit)
+  --select-if-one            Select the given option if there is only one
+
+Style Flags (Colors ONLY accept 0-255 or #RRGGBB):
+  --padding="0 0"               Padding CSS (top right bottom left)
+  --cursor.foreground="212"     Foreground Color
+  --cursor.background=""        Background Color
+  --header.foreground="99"      Foreground Color
+  --header.background=""        Background Color
+  --item.foreground=""          Foreground Color
+  --item.background=""          Background Color
+  --selected.foreground="212"   Foreground Color
+  --selected.background=""      Background Color
 EOF
     }
 
     local args_options=()
-    local parse_args=()
     
     while [[ $# -gt 0 ]]; do
-        if [[ "$1" == -* ]]; then
-            parse_args+=("$1")
-            if [[ "$1" != *=* && "$1" != --no-* && "$1" != --ordered ]]; then
-                 if [[ -n "$2" && "$2" != -* ]]; then
-                    parse_args+=("$2")
-                    shift
-                 fi
-            fi
-        else
-            args_options+=("$1")
-        fi
-        shift
-    done
-    
-    set -- "${parse_args[@]}"
+        local arg="$1"
+        local key="$1"
+        local val=""
+        local has_val="false"
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help) show_help_panel; return 0 ;;
-            --limit=*) limit="${1#*=}"; shift ;;
-            --limit)   limit="$2"; shift 2 ;;
-            --no-limit) limit=0; shift ;;
-            --height=*) height="${1#*=}"; shift ;;
-            --height)   height="$2"; shift 2 ;;
-            --cursor=*) cursor_char="${1#*=}"; shift ;;
-            --cursor)   cursor_char="$2"; shift 2 ;;
-            --header=*) header="${1#*=}"; shift ;;
-            --header)   header="$2"; shift 2 ;;
-            --selected=*) pre_selected="${1#*=}"; shift ;;
-            --selected)   pre_selected="$2"; shift 2 ;;
-            --ordered) ordered=true; shift ;;
-            --no-show-help) show_help=false; shift ;;
-            --cursor.foreground=*)   c_cursor_fg="${1#*=}"; shift ;;
-            --cursor.foreground)     c_cursor_fg="$2"; shift 2 ;;
-            --header.foreground=*)   c_header_fg="${1#*=}"; shift ;;
-            --header.foreground)     c_header_fg="$2"; shift 2 ;;
-            --item.foreground=*)     c_item_fg="${1#*=}"; shift ;;
-            --item.foreground)       c_item_fg="$2"; shift 2 ;;
-            --selected.foreground=*) c_selected_fg="${1#*=}"; shift ;;
-            --selected.foreground)   c_selected_fg="$2"; shift 2 ;;
-            *) shift ;;
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            has_val="true"
+        fi
+
+        case "$key" in
+            -h|--help)                  [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_help_panel; return 0 ;;
+            --no-limit)                 [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; limit=0; shift; continue ;;
+            --ordered)                  [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; ordered=true; shift; continue ;;
+            --no-show-help)             [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_help=false; shift; continue ;;
+            --show-help)                [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_help=true; shift; continue ;;
+            --no-strip-ansi)            [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; strip_ansi_flag=false; shift; continue ;;
+            --strip-ansi)               [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; strip_ansi_flag=true; shift; continue ;;
+            --select-if-one)            [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; select_if_one=true; shift; continue ;;
+            
+            --limit|--height|--cursor|--header|--timeout|--cursor-prefix|--selected-prefix|--unselected-prefix|--selected|--input-delimiter|--output-delimiter|--label-delimiter|--padding|--cursor.foreground|--cursor.background|--header.foreground|--header.background|--item.foreground|--item.background|--selected.foreground|--selected.background)
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then
+                        die "La bandera '${key}' requiere un valor asignado."
+                    fi
+                    val="$2"
+                    shift 2
+                else
+                    shift
+                fi
+                
+                case "$key" in
+                    --limit|--height)
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '${key}' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        [[ "$key" == "--limit" ]] && limit="$val" || height="$val"
+                        ;;
+                    --timeout)
+                        val="${val%s}"
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '--timeout' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        timeout="$val"
+                        ;;
+                    --padding)
+                        [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+){0,3}$ ]] && die "Padding inválido en '${key}'. Recibido: '${val}'. Literal esperado: 1 a 4 números."
+                        padding="$val"
+                        ;;
+                    --cursor)               cursor_char="$val" ;;
+                    --header)               header="$val" ;;
+                    --cursor-prefix)        cursor_prefix="$val" ;;
+                    --selected-prefix)      selected_prefix="$val" ;;
+                    --unselected-prefix)    unselected_prefix="$val" ;;
+                    --selected)             pre_selected="$val" ;;
+                    --input-delimiter)      input_delimiter="$val" ;;
+                    --output-delimiter)     output_delimiter="$val" ;;
+                    --label-delimiter)      label_delimiter="$val" ;;
+
+                    # Colores
+                    --cursor.foreground|--cursor.background|--header.foreground|--header.background|--item.foreground|--item.background|--selected.foreground|--selected.background)
+                        if ! is_valid_color "$val"; then
+                            die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                        fi
+
+                        case "$key" in
+                            --cursor.foreground)   c_cursor_fg="$val" ;;
+                            --cursor.background)   c_cursor_bg="$val" ;;
+                            --header.foreground)   c_header_fg="$val" ;;
+                            --header.background)   c_header_bg="$val" ;;
+                            --item.foreground)     c_item_fg="$val" ;;
+                            --item.background)     c_item_bg="$val" ;;
+                            --selected.foreground) c_selected_fg="$val" ;;
+                            --selected.background) c_selected_bg="$val" ;;
+                        esac
+                        ;;
+                esac
+                ;;
+            
+            --*) 
+                die "Bandera desconocida o no soportada: '${key}'. Usa '--help' para ver la lista de banderas permitidas."
+                ;;
+                
+            *) 
+                args_options+=("$arg")
+                shift 
+                ;;
         esac
     done
 
+    [[ "$output_delimiter" == "\\n" ]] && output_delimiter=$'\n'
+    [[ "$input_delimiter" == "\\n" ]] && input_delimiter=$'\n'
+
+    local raw_options=()
     if [[ ${#args_options[@]} -gt 0 ]]; then
-        options=("${args_options[@]}")
-    else
-        if [ ! -t 0 ]; then
-            while IFS= read -r line; do
-                options+=("$line")
+        raw_options=("${args_options[@]}")
+    fi
+
+    if [ ! -t 0 ]; then
+        if [[ "$input_delimiter" == $'\n' ]]; then
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                raw_options+=("$line")
+            done
+        else
+            local raw_input
+            read -rd '' raw_input
+            local old_ifs=$IFS
+            IFS="$input_delimiter" read -ra piped_arr <<< "$raw_input"
+            IFS=$old_ifs
+            for item in "${piped_arr[@]}"; do
+                [[ -n "$item" ]] && raw_options+=("$item")
             done
         fi
+        exec 0< /dev/tty
     fi
 
-    if [[ ${#options[@]} -eq 0 ]]; then
-        echo "no options provided, see --help parameter" 
-        exit 1 
+    if [[ ${#raw_options[@]} -eq 0 ]]; then
+        die "No options provided. Please provide options or pipe them. See --help."
     fi
+
+    local options=()
+    local values=()
+
+    for ((i=0; i<${#raw_options[@]}; i++)); do
+        [[ "$strip_ansi_flag" == "true" ]] && raw_options[$i]=$(strip_ansi "${raw_options[$i]}")
+        
+        if [[ -n "$label_delimiter" && "${raw_options[$i]}" == *"$label_delimiter"* ]]; then
+            options+=("${raw_options[$i]%%${label_delimiter}*}")
+            values+=("${raw_options[$i]#*${label_delimiter}}")
+        else
+            options+=("${raw_options[$i]}")
+            values+=("${raw_options[$i]}")
+        fi
+    done
 
     local total=${#options[@]}
+
+    if [[ "$select_if_one" == "true" && $total -eq 1 ]]; then
+        printf "%s%s" "${values[0]}" "${output_delimiter}"
+        return 0
+    fi
+
     local selected_status=()
     local current_idx=0
     local scroll_offset=0
@@ -128,46 +466,136 @@ EOF
     
     for ((i=0; i<total; i++)); do selected_status[$i]=0; done
 
+    local first_match=-1
     if [[ -n "$pre_selected" ]]; then
-        local old_ifs=$IFS
-        IFS=',' read -ra pre_arr <<< "$pre_selected"
-        IFS=$old_ifs
-        for item in "${pre_arr[@]}"; do
-            item=$(echo "$item" | xargs)
-            for ((i=0; i<total; i++)); do
-                if [[ "${options[$i]}" == "$item" ]]; then
-                    selected_status[$i]=1
-                fi
+        if [[ "$pre_selected" == "*" ]]; then
+            for ((i=0; i<total; i++)); do selected_status[$i]=1; done
+            first_match=0
+        else
+            local old_ifs=$IFS
+            IFS=',' read -ra pre_arr <<< "$pre_selected"
+            IFS=$old_ifs
+            for item in "${pre_arr[@]}"; do
+                item=$(printf '%s' "$item" | xargs)
+                for ((i=0; i<total; i++)); do
+                    if [[ "${values[$i]}" == "$item" || "${options[$i]}" == "$item" || "${values[$i]}" == *" $item" || "${options[$i]}" == *" $item" ]]; then
+                        selected_status[$i]=1
+                        [[ $first_match -eq -1 ]] && first_match=$i
+                    fi
+                done
             done
-        done
+        fi
     fi
+
+    [[ $first_match -ne -1 ]] && current_idx=$first_match
 
     local s_cursor="$(make_ansi "$c_cursor_fg" "$c_cursor_bg")"
     local s_header="$(make_ansi "$c_header_fg" "$c_header_bg")"
     local s_item="$(make_ansi "$c_item_fg" "$c_item_bg")"
     local s_selected="$(make_ansi "$c_selected_fg" "$c_selected_bg")"
-    local reset="\e[0m"
-    local dimmed="\e[2m"
+    local reset="${ESC}[0m"
+    local dimmed="${ESC}[2m"
+
+    local pad_t=0 pad_r=0 pad_b=0 pad_l=0
+    read -ra _pv <<< "$padding"
+    case "${#_pv[@]}" in
+        1) pad_t="${_pv[0]}"; pad_r="${_pv[0]}"; pad_b="${_pv[0]}"; pad_l="${_pv[0]}" ;;
+        2) pad_t="${_pv[0]}"; pad_b="${_pv[0]}"; pad_r="${_pv[1]}"; pad_l="${_pv[1]}" ;;
+        3) pad_t="${_pv[0]}"; pad_r="${_pv[1]}"; pad_l="${_pv[1]}"; pad_b="${_pv[2]}" ;;
+        4) pad_t="${_pv[0]}"; pad_r="${_pv[1]}"; pad_b="${_pv[2]}"; pad_l="${_pv[3]}" ;;
+    esac
+
+    local pad_indent=""
+    for (( _p=0; _p<pad_l; _p++ )); do pad_indent+=" "; done
+
+    function page_right() {
+        local current_page=$(( current_idx / height ))
+        local total_pages=$(( (total + height - 1) / height ))
+        local rel_idx=$(( current_idx % height ))
+        
+        ((current_page++))
+        if (( current_page >= total_pages )); then current_page=0; fi
+        
+        current_idx=$(( current_page * height + rel_idx ))
+        if (( current_idx >= total )); then current_idx=$(( total - 1 )); fi
+    }
+
+    function page_left() {
+        local current_page=$(( current_idx / height ))
+        local total_pages=$(( (total + height - 1) / height ))
+        local rel_idx=$(( current_idx % height ))
+        
+        ((current_page--))
+        if (( current_page < 0 )); then current_page=$(( total_pages - 1 )); fi
+        
+        current_idx=$(( current_page * height + rel_idx ))
+        if (( current_idx >= total )); then current_idx=$(( total - 1 )); fi
+    }
+
+    local header_lines=0
+    if [[ -n "$header" ]]; then
+        header_lines=$(printf '%s' "$header" | grep -c "^")
+    fi
+    
+    local total_pages=$(( (total + height - 1) / height ))
+    local page_lines=0
+    [[ $total_pages -gt 1 ]] && page_lines=2
+    
+    local footer_lines=0
+    [[ "$show_help" == "true" ]] && footer_lines=1
+    
+    local total_lines=$(( pad_t + header_lines + height + page_lines + footer_lines + pad_b ))
+
+    local alloc_str=""
+    for ((i=0; i<total_lines; i++)); do alloc_str+="${NL}"; done
+    printf '%s' "${alloc_str}${ESC}[${total_lines}A" >&2
+
+    local stty_orig
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon -isig < /dev/tty 2>/dev/null
+
+    local _interrupted=0
+    local needs_redraw=true
+
+    trap '_interrupted=1' SIGINT TERM
+    trap 'needs_redraw=true' SIGWINCH
+
+    function cleanup() {
+        while read -rsn1 -t 0.05 _trash < /dev/tty 2>/dev/null; do :; done
+        if [[ -n "$stty_orig" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        tput cnorm >&2
+        printf '%s' "${ESC}[?7h${ESC}[?1000l${ESC}[?1002l${ESC}[?1006l" >&2
+    }
+
+    function _clear_and_exit() {
+        local clear_frame=""
+        for ((k=0; k<total_lines; k++)); do clear_frame+="${ESC}[K${NL}"; done
+        printf '%s' "${clear_frame}${ESC}[${total_lines}A" >&2
+        cleanup
+    }
 
     tput civis >&2
-    trap 'tput cnorm >&2' EXIT
+    printf '%s' "${ESC}[?7l" >&2
 
     function draw() {
-        if (( current_idx < scroll_offset )); then
-            scroll_offset=$current_idx
-        elif (( current_idx >= scroll_offset + height )); then
-            scroll_offset=$(( current_idx - height + 1 ))
-        fi
+        scroll_offset=$(( (current_idx / height) * height ))
+        local frame="${reset}"
+
+        for (( _p=0; _p<pad_t; _p++ )); do frame+="${ESC}[K${NL}"; done
 
         if [[ -n "$header" ]]; then
-            echo -e "${s_header}${header}${reset}\e[K" >&2
+            frame+="${pad_indent}${s_header}${header}${reset}${ESC}[K${NL}"
         fi
 
         for (( i=0; i<height; i++ )); do
             local idx=$(( scroll_offset + i ))
             
             if (( idx >= total )); then
-                echo -e "\e[K" >&2 
+                frame+="${ESC}[K${NL}"
                 continue
             fi
 
@@ -199,92 +627,166 @@ EOF
                 fi
             fi
 
-            echo -e "${line_cursor}${prefix}${line_color}${item}${reset}\e[K" >&2
+            frame+="${pad_indent}${line_cursor}${prefix}${line_color}${item}${reset}${ESC}[K${NL}"
         done
+
+        if [[ $total_pages -gt 1 ]]; then
+            frame+="${ESC}[K${NL}"
+            local dots=""
+            local current_page=$(( current_idx / height ))
+            for (( p=0; p<total_pages; p++ )); do
+                if (( p == current_page )); then
+                    dots+="${s_cursor}•${reset}"
+                else
+                    dots+="${dimmed}•${reset}"
+                fi
+            done
+            frame+="${pad_indent}  ${dots}${ESC}[K${NL}"
+        fi
 
         if [[ "$show_help" == "true" ]]; then
             local help_msg=""
             if [[ $limit -eq 1 ]]; then
-                help_msg="${dimmed}↑/↓ navigate • enter select${reset}"
+                help_msg="${dimmed}←/↓/↑/→ nav • enter select${reset}"
             else
-                help_msg="${dimmed}↑/↓ navigate • space toggle • enter confirm${reset}"
+                help_msg="${dimmed}←/↓/↑/→ nav • space toggle • ctrl+a all • enter confirm${reset}"
             fi
-            echo -e "${help_msg}\e[K" >&2
+            frame+="${pad_indent}${help_msg}${ESC}[K${NL}"
         fi
+
+        for (( _p=0; _p<pad_b; _p++ )); do frame+="${ESC}[K${NL}"; done
+
+        frame+="${ESC}[${total_lines}A"
+        printf '%s' "${frame}" >&2
     }
 
+    local start_time=$(date +%s)
+
     while true; do
-        local header_lines=0
-        if [[ -n "$header" ]]; then
-            header_lines=$(echo -e "$header" | grep -c "^")
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
         fi
-        
-        local footer_lines=0
-        [[ "$show_help" == "true" ]] && footer_lines=1
-        
-        local total_lines=$(( header_lines + height + footer_lines ))
 
-        draw
+        local read_opts=("-rsn1" "-t" "0.05")
+        
+        if [[ $timeout -gt 0 ]]; then
+            local now=$(date +%s)
+            local remain=$(( timeout - (now - start_time) ))
+            if (( remain <= 0 )); then _clear_and_exit; return 124; fi
+        fi
 
-        IFS= read -rsn1 key
+        local _read_status=0
+        IFS= read "${read_opts[@]}" key < /dev/tty || _read_status=$?
+
+        if [[ $_interrupted -eq 1 ]]; then
+            _clear_and_exit
+            return 130
+        fi
+
+        if [[ $_read_status -ne 0 ]]; then continue; fi
+
+        needs_redraw=true
+
         case "$key" in
-            $'\x1b')
-                read -rsn2 -t 0.1 next_chars
-                case "$next_chars" in
-                    '[A') ((current_idx--)); if ((current_idx < 0)); then current_idx=$((total - 1)); fi ;;
-                    '[B') ((current_idx++)); if ((current_idx >= total)); then current_idx=0; fi ;;
-                esac
+            $'\x03'|$'\x04'|'q') 
+                _clear_and_exit
+                return 130 
                 ;;
-            'k') ((current_idx--)); if ((current_idx < 0)); then current_idx=0; fi ;;
-            'j') ((current_idx++)); if ((current_idx >= total)); then current_idx=$((total - 1)); fi ;;
+            $'\x1b')
+                local c1="" c2="" c3="" seq=""
+                IFS= read -rsn1 -t 0.15 c1 < /dev/tty || true
+                if [[ -z "$c1" ]]; then continue; fi
+
+                if [[ "$c1" == "[" || "$c1" == "O" ]]; then
+                    IFS= read -rsn1 -t 0.15 c2 < /dev/tty || true
+                    if [[ -z "$c2" ]]; then continue; fi
+
+                    seq="${c1}${c2}"
+                    if [[ "$c2" =~ [0-9] ]]; then
+                        IFS= read -rsn1 -t 0.15 c3 < /dev/tty || true
+                        seq="${seq}${c3}"
+                    fi
+
+                    case "$seq" in
+                        "[A"|"OA") ((current_idx--)); if ((current_idx < 0)); then current_idx=$((total - 1)); fi ;;
+                        "[B"|"OB") ((current_idx++)); if ((current_idx >= total)); then current_idx=0; fi ;;
+                        "[C"|"OC") page_right ;;
+                        "[D"|"OD") page_left ;;
+                    esac
+                fi
+                ;;
+            'k') ((current_idx--)); if ((current_idx < 0)); then current_idx=$((total - 1)); fi ;;
+            'j') ((current_idx++)); if ((current_idx >= total)); then current_idx=0; fi ;;
+            'l') page_right ;;
+            'h') page_left ;;
             
+            $'\x01') 
+                if [[ $limit -ne 1 ]]; then
+                    local all_sel=true
+                    for ((i=0; i<total; i++)); do
+                        if (( selected_status[i] == 0 )); then
+                            all_sel=false
+                            break
+                        fi
+                    done
+                    
+                    if [[ "$all_sel" == "true" ]]; then
+                        for ((i=0; i<total; i++)); do selected_status[$i]=0; done
+                    else
+                        for ((i=0; i<total; i++)); do selected_status[$i]=1; done
+                    fi
+                fi
+                ;;
+
             " ") 
                 if [[ $limit -ne 1 ]]; then
                     selected_status[$current_idx]=$(( 1 - selected_status[$current_idx] ))
                 fi
                 ;;
             
-            "") 
+            ""|$'\x0a'|$'\x0d') 
                 if [[ $limit -eq 1 ]]; then
-                    final_selection="${options[$current_idx]}"
+                    final_selection="${values[$current_idx]}"
                 else
                     local first=true
-                    for ((i=0; i<total; i++)); do
-                        if (( selected_status[i] == 1 )); then
-                            if [ "$first" = true ]; then
-                                final_selection="${options[$i]}"
-                                first=false
-                            else
-                                final_selection+="${output_delimiter}${options[$i]}"
+                    
+                    if [[ "$ordered" == "true" ]]; then
+                        for ((i=0; i<total; i++)); do
+                            if (( selected_status[i] == 1 )); then
+                                if [ "$first" = true ]; then
+                                    final_selection="${values[$i]}"
+                                    first=false
+                                else
+                                    final_selection+="${output_delimiter}${values[$i]}"
+                                fi
                             fi
-                        fi
-                    done
+                        done
+                    else
+                        for ((i=0; i<total; i++)); do
+                            if (( selected_status[i] == 1 )); then
+                                if [ "$first" = true ]; then
+                                    final_selection="${values[$i]}"
+                                    first=false
+                                else
+                                    final_selection+="${output_delimiter}${values[$i]}"
+                                fi
+                            fi
+                        done
+                    fi
                 fi
                 break 
                 ;;
-                
-            'q') 
-                echo -ne "\033[${total_lines}A" >&2
-                for ((k=0; k<total_lines; k++)); do echo -e "\e[K" >&2; done
-                echo -ne "\033[${total_lines}A" >&2
-                return 1 
-                ;;
         esac
-
-        echo -ne "\033[${total_lines}A" >&2
     done
 
-    echo -ne "\033[${total_lines}A" >&2
-    for ((k=0; k<total_lines; k++)); do echo -e "\e[K" >&2; done
-    echo -ne "\033[${total_lines}A" >&2
-    
-    tput cnorm >&2
+    _clear_and_exit
     
     if [[ -n "$final_selection" ]]; then
-        printf "%s\n" "$final_selection"
+        printf "%s%s" "$final_selection" "${output_delimiter}"
     fi
 }
 
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then 
     cmd_choose "${@}"
 fi

@@ -1,0 +1,2633 @@
+#!/usr/bin/env bash 
+
+function cmd_format(){
+    # Emojis -> https://raw.githubusercontent.com/kyokomi/emoji/master/emoji_codemap.go 
+    local _SCRIPT_DIR
+    _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local _EMOJIS_TSV="${_SCRIPT_DIR}/../icons/emojis.tsv"
+
+    function _show_usage(){
+        cat <<EOF
+Usage: bash-ut format [<template> ...] [flags]
+
+Format a string using a template
+
+Arguments:
+  [<template> ...]    Template string to format (can also be provided via stdin)
+
+Flags:
+  -h, --help               Show context-sensitive help.
+  -t, --type="markdown"    Format to use (markdown | emoji)
+EOF
+    }
+
+    local type="markdown"
+    local -a positional=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                _show_usage
+                return 0
+                ;;
+            --type=*)
+                type="${1#--type=}"
+                type="${type//\"/}"
+                ;;
+            -t|--type)
+                shift
+                type="$1"
+                ;;
+            --)
+                shift
+                positional+=("$@")
+                break
+                ;;
+            -*)
+                printf 'error: unknown flag: %s\n' "$1" >&2
+                return 1
+                ;;
+            *)
+                positional+=("$1")
+                ;;
+        esac
+        shift
+    done
+
+    case "$type" in
+        markdown|emoji) ;;
+        *)
+            printf 'error: --type must be "markdown" or "emoji"\n' >&2
+            return 1
+            ;;
+    esac
+
+    local text
+    if [[ ${#positional[@]} -gt 0 ]]; then
+        text="${positional[*]}"
+    elif [[ ! -t 0 ]]; then
+        text="$(cat)"
+    else
+        _show_usage
+        return 0
+    fi
+
+    function _format_emoji(){
+        local esc_input="${1//\\/\\\\}"
+
+        awk -v input="$esc_input" -F'\t' '
+            BEGIN {
+                placeholder = "\001"          # carácter que nunca aparece en texto normal
+                gsub(/\\:/, placeholder, input)  # proteger los ":" escapados
+            }
+            NF >= 2 && $1 != "" && $2 != "" {
+                gsub($1, $2, input)
+            }
+            END {
+                gsub(placeholder, ":", input)  # restaurar como ":" literal, sin la barra
+                print input
+            }
+        ' "$_EMOJIS_TSV"
+    }
+
+
+    function _format_markdown(){
+
+      _mdcat_strip=$(mktemp /tmp/_mdcat_strip_XXXXXX)
+      cat > "$_mdcat_strip" << 'STRIPEOF'
+      #!/usr/bin/env bash
+
+      strip_ansi() {
+          local input
+          if [[ $# -gt 0 ]]; then
+              input="$*"
+          else
+              IFS= read -r -d '' input
+          fi
+
+          local out=""
+          local -i state=0 
+          local -r ESC=$'\x1b'
+          local -r BEL=$'\x07'
+          local -i i len=${#input}
+          local c
+
+          for (( i=0; i<len; i++ )); do
+              c="${input:i:1}"
+              case "$state" in
+                  0) 
+                      case "$c" in
+                          "$ESC") state=1 ;;
+                          "$BEL") : ;;
+                          *) out+="$c" ;;
+                      esac
+                      ;;
+                  1) 
+                      case "$c" in
+                          '[') state=2 ;;
+                          ']') state=3 ;;
+                          '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                          "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>')
+                              state=0 ;;
+                          *)
+                              out+="${ESC}${c}"
+                              state=0
+                              ;;
+                      esac
+                      ;;
+                  2) 
+                      case "$c" in
+                          ';'|'?'|[0-9]) : ;;
+                          *) state=0 ;;
+                      esac
+                      ;;
+                  3) 
+                      case "$c" in
+                          [0-9]) state=4 ;;
+                          *) state=0 ;;
+                      esac
+                      ;;
+                  4) 
+                      case "$c" in
+                          "$BEL") state=0 ;;
+                          "$ESC") state=5 ;;
+                      esac
+                      ;;
+                  5)
+                      state=0
+                      ;;
+              esac
+          done
+
+          printf '%s' "$out"
+      }
+
+      strip_ansi < "$1"
+STRIPEOF
+      chmod +x "$_mdcat_strip"
+      export _mdcat_strip
+
+      _mdcat_awkfile=$(mktemp /tmp/_mdcat_XXXXXX.awk)
+      trap 'rm -f "$_mdcat_awkfile" "$_mdcat_strip"' EXIT
+      _mdcat_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      cat > "$_mdcat_awkfile" << 'AWKEOF'
+      BEGIN {
+          IGNORECASE = 1
+          EMOJI_RANGE = "[🌀-🫿☀-➿⬀-⯿⌀-⏿🇦-🇿]"
+          in_quote_table = 0
+          qtbl_rows = 0
+          in_table  = 0
+          tbl_rows  = 0
+          in_html_h = 0   
+          html_h_level = 0
+          html_h_buf  = "" 
+
+       
+          red     = "\033[31m"
+          green   = "\033[32m"
+          yellow  = "\033[33m"
+          blue    = "\033[34m"
+          cyan    = "\033[36m"
+          gray    = "\033[90m"
+          magenta = "\033[35m"
+          reset   = "\033[0m"
+          fg_def  = "\033[39m"
+          bold    = "\033[1m"
+          italic  = "\033[3m"
+
+          # Bright variants
+          b_blue   = "\033[94m"
+          b_yellow = "\033[93m"
+          b_white  = ""
+          b_orange = "\033[33m"   
+       
+          code_bg  = "\033[100m"
+          code_fg  = "\033[32m"
+
+          osc8_st    = "\033\134"      
+          osc8_pre   = "\033]8;;"         
+          osc8_close = "\033]8;;" osc8_st 
+          c_link     = "\033[34m"        
+
+          BAR_PREFIX = "▌  "
+
+          ic_error     = "󰅚"
+          ic_warning   = "󰀪"
+          ic_caution   = "󰳦"
+          ic_note      = "󰋽"
+          ic_tip       = "󰌶"
+          ic_important = "󰅾"
+          ic_success   = "󰄬"
+          ic_question  = "󰘥"
+          ic_failure   = "󰅖"
+          ic_danger    = "󱐌"
+          ic_bug       = "󰨰"
+          ic_example   = "󰉹"
+          ic_quote     = "󱆨"
+          ic_abstract  = "󰨸"
+          ic_todo      = "󰗡"
+
+          ic_h1 = "󰲡"; ic_h2 = "󰲣"; ic_h3 = "󰲥"; ic_h4 = "󰲧"; ic_h5 = "󰲩"; ic_h6 = "󰲫" 
+
+          kbd_on  = "\033[7m"
+          kbd_off = "\033[27m"
+
+          style_tag_canon["b"]      = "b";    style_tag_canon["bold"]   = "b"; style_tag_canon["strong"] = "b"
+          style_tag_canon["i"]      = "i";    style_tag_canon["italic"] = "i"; style_tag_canon["em"]     = "i"
+          style_tag_canon["u"]      = "u";    style_tag_canon["ins"]    = "u"
+          style_tag_canon["s"]      = "s";    style_tag_canon["strike"] = "s"; style_tag_canon["del"]    = "s"
+          style_tag_canon["code"]   = "code"
+          style_tag_canon["mark"]   = "mark"
+
+          style_on["b"]    = bold red
+          style_on["i"]    = italic red
+          style_on["u"]    = "\033[4m"
+          style_on["s"]    = "\033[9m"
+          style_on["code"] = code_bg code_fg
+          style_on["mark"] = "\033[43m\033[30m"
+
+       
+          color_stack[1]  = gray
+          for (i = 2; i <= 10; i++) color_stack[i] = gray
+
+          callout_open[1] = 0
+          in_code         = 0   # dentro de bloque ```
+
+          html_list_depth = 0
+
+          in_details_block = 0
+          details_nest      = 0
+          details_buf       = ""
+          DETAILS_BAR       = "│ "
+
+          in_html_table_block = 0
+          html_table_nest      = 0
+          html_table_buf        = ""
+          html_table_align     = ""
+
+          in_html_pre_block = 0
+          html_pre_buf       = ""
+          html_pre_lang      = ""
+          html_pre_first     = 0
+
+          in_html_bq_block = 0
+          html_bq_nest       = 0
+          html_bq_buf        = ""
+
+          lang_alias["shell"]         = "bash"
+          lang_alias["shell-session"] = "bash"
+          lang_alias["shellscript"]   = "bash"
+          lang_alias["console"]       = "bash"
+          lang_alias["terminal"]      = "bash"
+          lang_alias["sh"]            = "bash"
+          lang_alias["zsh"]           = "bash"
+          lang_alias["ksh"]           = "bash"
+          lang_alias["python3"]       = "python"
+          lang_alias["python2"]       = "python"
+          lang_alias["py"]            = "python"
+          lang_alias["js"]            = "js"
+          lang_alias["node"]          = "js"
+          lang_alias["nodejs"]        = "js"
+          lang_alias["javascript"]    = "js"
+          lang_alias["ts"]            = "ts"
+          lang_alias["typescript"]    = "ts"
+          lang_alias["jsx"]           = "jsx"
+          lang_alias["tsx"]           = "tsx"
+          lang_alias["c++"]           = "cpp"
+          lang_alias["cplusplus"]     = "cpp"
+          lang_alias["c#"]            = "cs"
+          lang_alias["csharp"]        = "cs"
+          lang_alias["golang"]        = "go"
+          lang_alias["rust"]          = "rs"
+          lang_alias["ruby"]          = "rb"
+          lang_alias["docker"]        = "Dockerfile"
+          lang_alias["dockerfile"]    = "Dockerfile"
+          lang_alias["yml"]           = "yaml"
+          lang_alias["toml"]          = "toml"
+          lang_alias["md"]            = "markdown"
+          lang_alias["jsonc"]         = "json"
+          lang_alias["objc"]          = "m"
+          lang_alias["objectivec"]    = "m"
+          lang_alias["kotlin"]        = "kt"
+          lang_alias["swift"]         = "swift"
+          lang_alias["php"]           = "php"
+          lang_alias["perl"]          = "pl"
+          lang_alias["lua"]           = "lua"
+          lang_alias["r"]             = "r"
+          lang_alias["powershell"]    = "ps1"
+          lang_alias["pwsh"]          = "ps1"
+          lang_alias["batch"]         = "bat"
+          lang_alias["cmd"]           = "bat"
+          lang_alias["sql"]           = "sql"
+          lang_alias["make"]          = "makefile"
+          lang_alias["vim"]           = "vim"
+          lang_alias["html"]          = "html"
+          lang_alias["css"]           = "css"
+          lang_alias["scss"]          = "scss"
+          lang_alias["sass"]          = "sass"
+          lang_alias["text"]          = "txt"
+          lang_alias["plaintext"]     = "txt"
+          lang_alias["plain"]         = "txt"
+
+        _ec_str = "*_`[]()!|~=+.#{}-\\"
+        for (_i = 1; _i <= length(_ec_str); _i++) {
+          _ec_enc[substr(_ec_str, _i, 1)] = "\x01" sprintf("%c", _i + 64)
+          _ec_dec[sprintf("%c", _i + 64)] = substr(_ec_str, _i, 1)
+          css_color["aliceblue"]            = "f0f8ff"
+          css_color["antiquewhite"]         = "faebd7"
+          css_color["aqua"]                 = "00ffff"
+          css_color["aquamarine"]           = "7fffd4"
+          css_color["azure"]                = "f0ffff"
+          css_color["beige"]                = "f5f5dc"
+          css_color["bisque"]               = "ffe4c4"
+          css_color["black"]                = "000000"
+          css_color["blanchedalmond"]       = "ffebcd"
+          css_color["blue"]                 = "0000ff"
+          css_color["blueviolet"]           = "8a2be2"
+          css_color["brown"]                = "a52a2a"
+          css_color["burlywood"]            = "deb887"
+          css_color["cadetblue"]            = "5f9ea0"
+          css_color["chartreuse"]           = "7fff00"
+          css_color["chocolate"]            = "d2691e"
+          css_color["coral"]                = "ff7f50"
+          css_color["cornflowerblue"]       = "6495ed"
+          css_color["cornsilk"]             = "fff8dc"
+          css_color["crimson"]              = "dc143c"
+          css_color["cyan"]                 = "00ffff"
+          css_color["darkblue"]             = "00008b"
+          css_color["darkcyan"]             = "008b8b"
+          css_color["darkgoldenrod"]        = "b8860b"
+          css_color["darkgray"]             = "a9a9a9"
+          css_color["darkgreen"]            = "006400"
+          css_color["darkgrey"]             = "a9a9a9"
+          css_color["darkkhaki"]            = "bdb76b"
+          css_color["darkmagenta"]          = "8b008b"
+          css_color["darkolivegreen"]       = "556b2f"
+          css_color["darkorange"]           = "ff8c00"
+          css_color["darkorchid"]           = "9932cc"
+          css_color["darkred"]              = "8b0000"
+          css_color["darksalmon"]           = "e9967a"
+          css_color["darkseagreen"]         = "8fbc8f"
+          css_color["darkslateblue"]        = "483d8b"
+          css_color["darkslategray"]        = "2f4f4f"
+          css_color["darkslategrey"]        = "2f4f4f"
+          css_color["darkturquoise"]        = "00ced1"
+          css_color["darkviolet"]           = "9400d3"
+          css_color["deeppink"]             = "ff1493"
+          css_color["deepskyblue"]          = "00bfff"
+          css_color["dimgray"]              = "696969"
+          css_color["dimgrey"]              = "696969"
+          css_color["dodgerblue"]           = "1e90ff"
+          css_color["firebrick"]            = "b22222"
+          css_color["floralwhite"]          = "fffaf0"
+          css_color["forestgreen"]          = "228b22"
+          css_color["fuchsia"]              = "ff00ff"
+          css_color["gainsboro"]            = "dcdcdc"
+          css_color["ghostwhite"]           = "f8f8ff"
+          css_color["gold"]                 = "ffd700"
+          css_color["goldenrod"]            = "daa520"
+          css_color["gray"]                 = "808080"
+          css_color["green"]                = "008000"
+          css_color["greenyellow"]          = "adff2f"
+          css_color["grey"]                 = "808080"
+          css_color["honeydew"]             = "f0fff0"
+          css_color["hotpink"]              = "ff69b4"
+          css_color["indianred"]            = "cd5c5c"
+          css_color["indigo"]               = "4b0082"
+          css_color["ivory"]                = "fffff0"
+          css_color["khaki"]                = "f0e68c"
+          css_color["lavender"]             = "e6e6fa"
+          css_color["lavenderblush"]        = "fff0f5"
+          css_color["lawngreen"]            = "7cfc00"
+          css_color["lemonchiffon"]         = "fffacd"
+          css_color["lightblue"]            = "add8e6"
+          css_color["lightcoral"]           = "f08080"
+          css_color["lightcyan"]            = "e0ffff"
+          css_color["lightgoldenrodyellow"] = "fafad2"
+          css_color["lightgray"]            = "d3d3d3"
+          css_color["lightgreen"]           = "90ee90"
+          css_color["lightgrey"]            = "d3d3d3"
+          css_color["lightpink"]            = "ffb6c1"
+          css_color["lightsalmon"]          = "ffa07a"
+          css_color["lightseagreen"]        = "20b2aa"
+          css_color["lightskyblue"]         = "87cefa"
+          css_color["lightslategray"]       = "778899"
+          css_color["lightslategrey"]       = "778899"
+          css_color["lightsteelblue"]       = "b0c4de"
+          css_color["lightyellow"]          = "ffffe0"
+          css_color["lime"]                 = "00ff00"
+          css_color["limegreen"]            = "32cd32"
+          css_color["linen"]                = "faf0e6"
+          css_color["magenta"]              = "ff00ff"
+          css_color["maroon"]               = "800000"
+          css_color["mediumaquamarine"]     = "66cdaa"
+          css_color["mediumblue"]           = "0000cd"
+          css_color["mediumorchid"]         = "ba55d3"
+          css_color["mediumpurple"]         = "9370db"
+          css_color["mediumseagreen"]       = "3cb371"
+          css_color["mediumslateblue"]      = "7b68ee"
+          css_color["mediumspringgreen"]    = "00fa9a"
+          css_color["mediumturquoise"]      = "48d1cc"
+          css_color["mediumvioletred"]      = "c71585"
+          css_color["midnightblue"]         = "191970"
+          css_color["mintcream"]            = "f5fffa"
+          css_color["mistyrose"]            = "ffe4e1"
+          css_color["moccasin"]             = "ffe4b5"
+          css_color["navajowhite"]          = "ffdead"
+          css_color["navy"]                 = "000080"
+          css_color["oldlace"]              = "fdf5e6"
+          css_color["olive"]                = "808000"
+          css_color["olivedrab"]            = "6b8e23"
+          css_color["orange"]               = "ffa500"
+          css_color["orangered"]            = "ff4500"
+          css_color["orchid"]               = "da70d6"
+          css_color["palegoldenrod"]        = "eee8aa"
+          css_color["palegreen"]            = "98fb98"
+          css_color["paleturquoise"]        = "afeeee"
+          css_color["palevioletred"]        = "db7093"
+          css_color["papayawhip"]           = "ffefd5"
+          css_color["peachpuff"]            = "ffdab9"
+          css_color["peru"]                 = "cd853f"
+          css_color["pink"]                 = "ffc0cb"
+          css_color["plum"]                 = "dda0dd"
+          css_color["powderblue"]           = "b0e0e6"
+          css_color["purple"]               = "800080"
+          css_color["rebeccapurple"]        = "663399"
+          css_color["red"]                  = "ff0000"
+          css_color["rosybrown"]            = "bc8f8f"
+          css_color["royalblue"]            = "4169e1"
+          css_color["saddlebrown"]          = "8b4513"
+          css_color["salmon"]               = "fa8072"
+          css_color["sandybrown"]           = "f4a460"
+          css_color["seagreen"]             = "2e8b57"
+          css_color["seashell"]             = "fff5ee"
+          css_color["sienna"]               = "a0522d"
+          css_color["silver"]               = "c0c0c0"
+          css_color["skyblue"]              = "87ceeb"
+          css_color["slateblue"]            = "6a5acd"
+          css_color["slategray"]            = "708090"
+          css_color["slategrey"]            = "708090"
+          css_color["snow"]                 = "fffafa"
+          css_color["springgreen"]          = "00ff7f"
+          css_color["steelblue"]            = "4682b4"
+          css_color["tan"]                  = "d2b48c"
+          css_color["teal"]                 = "008080"
+          css_color["thistle"]              = "d8bfd8"
+          css_color["tomato"]               = "ff6347"
+          css_color["turquoise"]            = "40e0d0"
+          css_color["violet"]               = "ee82ee"
+          css_color["wheat"]                = "f5deb3"
+          css_color["white"]                = "ffffff"
+          css_color["whitesmoke"]           = "f5f5f5"
+          css_color["yellow"]               = "ffff00"
+          css_color["yellowgreen"]          = "9acd32"
+          css_pal["black"]   = 0
+          css_pal["maroon"]  = 1;  css_pal["red"]     = 1
+          css_pal["green"]   = 2
+          css_pal["olive"]   = 3
+          css_pal["navy"]    = 4
+          css_pal["purple"]  = 5;  css_pal["fuchsia"] = 5;  css_pal["magenta"] = 5
+          css_pal["teal"]    = 6
+          css_pal["silver"]  = 7
+          css_pal["gray"]    = 8;  css_pal["grey"]    = 8
+          css_pal["lime"]    = 10
+          css_pal["yellow"]  = 11
+          css_pal["blue"]    = 12
+          css_pal["magenta"] = 13; css_pal["fuchsia"] = 13
+          css_pal["aqua"]    = 14; css_pal["cyan"]    = 14
+          css_pal["white"]   = 15
+      }
+
+      }
+       
+       
+      function get_depth(line,    d, rest) {
+          d = 0; rest = line
+          while (match(rest, /^> */)) {
+              d++
+              rest = substr(rest, RLENGTH + 1)
+              if (substr(rest, 1, 1) != ">") break
+          }
+          return d
+      }
+
+      function esc_encode(text,    i, c, n, out) {
+          out = ""
+          for (i = 1; i <= length(text); i++) {
+              c = substr(text, i, 1)
+              if (c == "\\" && i < length(text)) {
+                  n = substr(text, i+1, 1)
+                  if (n in _ec_enc) { out = out _ec_enc[n]; i++; continue }
+              }
+              out = out c
+          }
+          return out
+      }
+
+      function color_to_ansi(val, prefix,    m, h) {
+          gsub(/[[:space:]]/, "", val)
+          val = tolower(val)
+
+          if (val in css_color) {
+              if (val in css_pal) {
+                  return sprintf("\033[%s;5;%dm", prefix, css_pal[val])
+              }
+              h = css_color[val]
+              return sprintf("\033[%s;2;%d;%d;%dm", prefix,
+                  strtonum("0x" substr(h,1,2)),
+                  strtonum("0x" substr(h,3,2)),
+                  strtonum("0x" substr(h,5,2)))
+          }
+
+
+          if (val ~ /^#[0-9a-f]{3}$/) {                      # #rgb
+              h = substr(val, 2)
+              return sprintf("\033[%s;2;%d;%d;%dm", prefix,
+                  strtonum("0x" substr(h,1,1) substr(h,1,1)),
+                  strtonum("0x" substr(h,2,1) substr(h,2,1)),
+                  strtonum("0x" substr(h,3,1) substr(h,3,1)))
+          }
+          if (val ~ /^#[0-9a-f]{6}$/) {                      # #rrggbb
+              h = substr(val, 2)
+              return sprintf("\033[%s;2;%d;%d;%dm", prefix,
+                  strtonum("0x" substr(h,1,2)),
+                  strtonum("0x" substr(h,3,2)),
+                  strtonum("0x" substr(h,5,2)))
+          }
+          if (match(val, /^rgba?\(([0-9]{1,3}),([0-9]{1,3}),([0-9]{1,3})(,[0-9.]+)?\)$/, m)) {
+              if (m[1]+0 > 255 || m[2]+0 > 255 || m[3]+0 > 255) return ""
+              return sprintf("\033[%s;2;%d;%d;%dm", prefix, m[1]+0, m[2]+0, m[3]+0)
+              # alpha (m[4]) ignorado — terminales no lo soportan
+          }
+          return ""   
+      }
+
+      function render_span_tags(str, restore_fg,    out, rest, m, style, fg, bg, val, inner) {
+          out = ""; rest = str
+          while (match(rest, /<span[[:space:]]+style="([^"]*)"[[:space:]]*>/, m)) {
+              out   = out substr(rest, 1, RSTART - 1)
+              style = m[1]
+              rest  = substr(rest, RSTART + RLENGTH)
+
+              if (!match(rest, /^([^<]*)<\/span>/, m)) {
+                  out = out "<span style=\"" style "\">"
+                  continue
+              }
+              inner = m[1]
+              rest  = substr(rest, RLENGTH + 1)
+
+              fg = ""; bg = ""
+
+              # color: <valor>
+              if (match(style, /(^|;)[[:space:]]*color[[:space:]]*:[[:space:]]*([^;]+)/, m)) {
+                  val = m[2]; gsub(/[[:space:]]*$/, "", val)
+                  fg = color_to_ansi(val, "38")
+              }
+              # background-color: o background: <valor>
+              if (match(style, /(^|;)[[:space:]]*(background-color|background)[[:space:]]*:[[:space:]]*([^;]+)/, m)) {
+                  val = m[3]; gsub(/[[:space:]]*$/, "", val)
+                  bg = color_to_ansi(val, "48")
+              }
+
+              if (fg == "" && bg == "") {
+                  out = out "<span style=\"" style "\">" inner "</span>"
+              } else {
+                  out = out fg bg inner reset restore_fg
+              }
+          }
+          return out rest
+      }
+
+      function esc_decode(text,    i, c, n, out) {
+          out = ""
+          for (i = 1; i <= length(text); i++) {
+              c = substr(text, i, 1)
+              if (c == "\x01" && i < length(text)) {
+                  n = substr(text, i+1, 1)
+                  if (n in _ec_dec) { out = out _ec_dec[n]; i++; continue }
+              }
+              out = out c
+          }
+          return out
+      }
+       
+      function make_prefix(depth,    i, p, c) {
+          p = ""
+          for (i = 1; i < depth; i++) {
+              c = (color_stack[i] != "") ? color_stack[i] : gray
+              p = p c BAR_PREFIX
+          }
+          return p
+      }
+
+      function visible_prefix_len(prefix, depth) {
+          # cada nivel aporta "▌  " = 3 chars visibles
+          return (depth - 1) * 3 + 3 
+      }
+
+      function visible_len(s,    tmp, i, n, ch, w) {
+          tmp = s
+          gsub(/\033\[[0-9;?]*[a-zA-Z]/, "", tmp)      
+          gsub(/\033\][^\007]*\007/, "", tmp)           
+          gsub(/\033\][^\033]*\033\\/, "", tmp)         
+          gsub(/\033/, "", tmp)                         
+
+          w = 0
+          n = length(tmp)
+          for (i = 1; i <= n; i++) {
+              ch = substr(tmp, i, 1)
+              if (ch == "️") continue
+              else if (ch ~ EMOJI_RANGE) w += 2
+              else w += 1
+          }
+          return w
+      }
+      function print_wrapped(prefix, cur_fg, restore_fg, text, bullet,    term_w, max_w, formatted, wrapped, nw, i, line_out) {
+          term_w = 0
+          "stty size < /dev/tty 2>/dev/null" | getline _stty_out
+          close("stty size < /dev/tty 2>/dev/null")
+          split(_stty_out, _stty_parts, " ")
+          term_w = _stty_parts[2] + 0
+          if (term_w <= 0) term_w = 80
+
+          overhead = (depth * 3)
+          if (bullet != "") overhead += 2
+          max_w = term_w - overhead
+          if (max_w < 20) max_w = 20
+
+          formatted = format_inline(text, restore_fg)
+
+          delete wrapped
+          nw = wrap_cell(formatted, max_w, wrapped, 1)
+
+          if (nw == 0) {
+              print prefix cur_fg BAR_PREFIX restore_fg reset
+              return
+          }
+
+          for (i = 0; i < nw; i++) {
+              line_out = wrapped[1, i]
+              if (i == 0 && bullet != "")
+                  print prefix cur_fg BAR_PREFIX restore_fg bullet " " line_out reset
+              else
+                  print prefix cur_fg BAR_PREFIX restore_fg line_out reset
+          }
+      }
+      function convert_br(str,    out) {
+          out = str
+          gsub(/<br[ \t]*\/?>/, "\n", out)
+          gsub(/<\/br[ \t]*>/, "\n", out)   
+          return out
+      }
+
+
+      function dims_text(w, h) {
+          if (w != "" && h != "") return w "x" h
+          if (w != "")            return w " de ancho"
+          if (h != "")            return h " de alto"
+          return ""
+      }
+
+      function is_zero_size_img(w, h) {
+          if (w != "" && w ~ /^0(px)?$/) return 1
+          if (h != "" && h ~ /^0(px)?$/) return 1
+          return 0
+      }
+
+      function render_img_inline(str,    result, rest, arr, a2, tag, alt, src, w, h, dims, dt, m_start, m_len) {
+          result = ""
+          rest = str
+          while (match(rest, /<img[^>]*>/, arr)) {
+              m_start = RSTART   # guardar ANTES de los match() anidados de abajo
+              m_len   = RLENGTH
+              tag = arr[0]
+              alt = ""; src = ""; w = ""; h = ""
+              if (match(tag, /alt="([^"]*)"/, a2))       alt = a2[1]
+              if (match(tag, /src="([^"]*)"/, a2))       src = a2[1]
+              if (match(tag, /width="?([0-9]+)(px)?"?/, a2))  w = a2[1]
+              if (match(tag, /height="?([0-9]+)(px)?"?/, a2)) h = a2[1]
+
+              if (is_zero_size_img(w, h)) {
+                  result = result substr(rest, 1, m_start - 1)
+                  rest = substr(rest, m_start + m_len)
+                  continue
+              }
+
+              result = result substr(rest, 1, m_start - 1)
+              if (alt == "") alt = "imagen"
+              dt = dims_text(w, h)
+              dims = (dt != "") ? (" " gray "(" dt ")" reset) : ""
+              if (src != "")
+                  result = result gray image_icon_for(src) reset osc8_pre src osc8_st c_link alt reset osc8_close dims
+              else
+                  result = result gray "🖼 " reset alt dims
+              rest = substr(rest, m_start + m_len)
+          }
+          result = result rest
+          return result
+      }
+
+      function render_autolinks(str,    result, rest, arr) {
+          result = ""
+          rest = str
+          while (match(rest, /<(https?:\/\/[^ <>]+)>/, arr)) {
+              result = result substr(rest, 1, RSTART - 1)
+              result = result c_link osc8_pre arr[1] osc8_st link_icon_for(arr[1]) arr[1] reset osc8_close
+              rest = substr(rest, RSTART + RLENGTH)
+          }
+          while (match(rest, /<([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})>/, arr)) {
+              result = result substr(rest, 1, RSTART - 1)
+              result = result c_link "󰇮 " arr[1] reset
+              rest = substr(rest, RSTART + RLENGTH)
+          }
+          result = result rest
+          return result
+      }
+
+      function render_style_tags(str, restore_fg,    result, rest, arr, tagraw, closing, tagname, canon, depth, stack, i, j, seg, onseq, sawtag, valid, found) {
+
+          valid = 1
+          depth = 0
+          rest = str
+          while (match(rest, /<\/?(b|bold|strong|i|italic|em|code|u|ins|s|strike|del|mark)>/, arr)) {
+              tagraw  = tolower(arr[0])
+              closing = (tagraw ~ /^<\//)
+              tagname = tagraw
+              gsub(/[<>\/]/, "", tagname)
+              canon = style_tag_canon[tagname]
+              if (closing) {
+                  found = 0
+                  for (i = depth; i >= 1; i--) {
+                      if (stack[i] == canon) { found = 1; break }
+                  }
+                  if (!found) { valid = 0; break }
+                  for (j = i; j < depth; j++) stack[j] = stack[j + 1]
+                  depth--
+              } else {
+                  depth++
+                  stack[depth] = canon
+              }
+              rest = substr(rest, RSTART + RLENGTH)
+          }
+          if (!valid || depth != 0) return str
+
+          result = ""
+          rest = str
+          depth = 0
+          sawtag = 0
+          while (match(rest, /<\/?(b|bold|strong|i|italic|em|code|u|ins|s|strike|del|mark)>/, arr)) {
+              sawtag = 1
+              seg = substr(rest, 1, RSTART - 1)
+              if (seg != "") {
+                  onseq = ""
+                  for (i = 1; i <= depth; i++) onseq = onseq style_on[stack[i]]
+                  result = result "\033[0m" restore_fg onseq seg
+              }
+              tagraw  = tolower(arr[0])
+              closing = (tagraw ~ /^<\//)
+              tagname = tagraw
+              gsub(/[<>\/]/, "", tagname)
+              canon = style_tag_canon[tagname]
+              if (closing) {
+                  for (i = depth; i >= 1; i--) {
+                      if (stack[i] == canon) {
+                          for (j = i; j < depth; j++) stack[j] = stack[j + 1]
+                          depth--
+                          break
+                      }
+                  }
+              } else {
+                  depth++
+                  stack[depth] = canon
+              }
+              rest = substr(rest, RSTART + RLENGTH)
+          }
+          onseq = ""
+          for (i = 1; i <= depth; i++) onseq = onseq style_on[stack[i]]
+          if (rest != "" && (depth > 0 || sawtag))
+              result = result "\033[0m" restore_fg onseq rest
+          else
+              result = result rest
+          return result
+      }
+
+      function render_kbd_inline(str,    result, rest, arr, inner) {
+          result = ""
+          rest = str
+          while (match(rest, /<kbd>([^<]*)<\/kbd>/, arr)) {
+              result = result substr(rest, 1, RSTART - 1)
+              inner = arr[1]
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", inner)
+              gsub(/[[:space:]]+/, " ", inner)
+              result = result kbd_on " " inner " " kbd_off
+              rest = substr(rest, RSTART + RLENGTH)
+          }
+          result = result rest
+          return result
+      }
+
+      function decode_entities(str,    out) {
+          out = str
+          gsub(/&nbsp;/, " ", out)
+          gsub(/&ensp;/, "  ", out)
+          gsub(/&emsp;/, "    ", out)
+          gsub(/&quot;/, "\"", out)
+          gsub(/&#39;/, "'", out)
+          gsub(/&apos;/, "'", out)
+          gsub(/&lt;/, "<", out)
+          gsub(/&gt;/, ">", out)
+          gsub(/&copy;/, "©", out)
+          gsub(/&reg;/, "®", out)
+          gsub(/&trade;/, "™", out)
+          gsub(/&mdash;/, "—", out)
+          gsub(/&ndash;/, "–", out)
+          gsub(/&hellip;/, "…", out)
+          gsub(/&amp;/, "\\&", out)
+          return out
+      }
+
+      function visible_len_ml(str,    parts, n, i, w, maxw) {
+          n = split(str, parts, "\n")
+          maxw = 0
+          for (i = 1; i <= n; i++) {
+              w = visible_len(parts[i])
+              if (w > maxw) maxw = w
+          }
+          return maxw
+      }
+
+      function domain_match(u, dom) {
+          return (u ~ ("(^|https?://|//|\\.)" dom "([/?#]|$)"))
+      }
+      function domain_icon(url,    u) {
+          u = tolower(url)
+          if (domain_match(u, "apple\\.com"))         return " "
+          if (domain_match(u, "discord\\.com") || \
+              domain_match(u, "discord\\.gg"))          return "󰙯 "   
+          if (domain_match(u, "github\\.com"))        return "󰊤 "
+          if (domain_match(u, "gitlab\\.com"))        return "󰮠 "
+          if (domain_match(u, "google\\.com"))        return "󰊭 "
+          if (domain_match(u, "ycombinator\\.com"))   return " "
+          if (domain_match(u, "linkedin\\.com"))      return "󰌻 "
+          if (domain_match(u, "microsoft\\.com"))     return " "
+          if (domain_match(u, "neovim\\.io"))         return " "
+          if (domain_match(u, "reddit\\.com"))        return "󰑍 "
+          if (domain_match(u, "slack\\.com"))         return "󰒱 "
+          if (domain_match(u, "stackoverflow\\.com")) return "󰓌 "
+          if (domain_match(u, "steampowered\\.com"))  return " "
+          if (domain_match(u, "twitter\\.com"))       return " "
+          if (domain_match(u, "wikipedia\\.org"))     return "󰖬 "
+          if (domain_match(u, "x\\.com"))             return " "
+          if (u ~ /youtube[^.]*\.com/)                return "󰗃 "
+          if (domain_match(u, "youtu\\.be"))          return "󰗃 "
+          if (domain_match(u, "apple\\.com"))         return " "
+          if (domain_match(u, "bitbucket\\.org"))       return " "
+          if (domain_match(u, "codepen\\.io"))          return " "
+          if (domain_match(u, "npmjs\\.com"))           return "󰎙 "
+          if (domain_match(u, "docker\\.com"))          return "󰡨 "
+          if (domain_match(u, "kubernetes\\.io"))       return " "
+          if (domain_match(u, "vim\\.org"))             return " "
+          if (domain_match(u, "archlinux\\.org"))       return "󰣇 "
+          if (domain_match(u, "ubuntu\\.com"))          return "󰕈 "
+          if (domain_match(u, "debian\\.org"))          return "󰣚 "
+          if (domain_match(u, "fedoraproject\\.org"))   return "󰣛 "
+          if (domain_match(u, "python\\.org"))          return "󰌠 "
+          if (domain_match(u, "pypi\\.org"))            return "󰌠 "
+          if (domain_match(u, "rust-lang\\.org"))       return "󱘗 "
+          if (domain_match(u, "crates\\.io"))           return "󱘗 "
+          if (domain_match(u, "docs\\.rs"))             return "󱘗 "
+          if (domain_match(u, "go\\.dev"))              return "󰟓 "
+          if (domain_match(u, "golang\\.org"))          return "󰟓 "
+          if (domain_match(u, "pkg\\.go\\.dev"))        return "󰟓 "
+          if (domain_match(u, "php\\.net"))             return "󰌟 "
+          if (domain_match(u, "ruby-lang\\.org"))       return "󰴭 "
+          if (domain_match(u, "swift\\.org"))           return "󰛥 "
+          if (domain_match(u, "kotlinlang\\.org"))      return "󱈙 "
+          if (domain_match(u, "lua\\.org"))             return "󰢱 "
+          if (domain_match(u, "haskell\\.org"))         return "󰲒 "
+          if (domain_match(u, "nodejs\\.org"))          return " "
+          if (domain_match(u, "aws\\.amazon\\.com"))    return "󰸏 "
+          if (u ~ /\.amazonaws\.com/)                   return " "
+          if (domain_match(u, "digitalocean\\.com"))    return " "
+          if (domain_match(u, "instagram\\.com"))       return "󰋾 "
+          if (domain_match(u, "facebook\\.com"))        return "󰈌 "
+          if (domain_match(u, "telegram\\.org"))        return " "
+          if (domain_match(u, "t\\.me"))                return " "
+          if (domain_match(u, "whatsapp\\.com"))        return "󰖣 "
+          if (domain_match(u, "twitch\\.tv"))           return "󰕃 "
+          if (u ~ /mastodon\./)                         return " "
+          if (domain_match(u, "spotify\\.com"))         return "󰓇 "
+          if (domain_match(u, "figma\\.com"))           return " "
+          if (domain_match(u, "playstation\\.com"))     return " "
+
+          return ""
+      }
+
+
+      function link_icon_for(url,    ic) {
+          ic = domain_icon(url)
+          if (ic != "") return ic
+          if (tolower(url) ~ /^http/) return "󰖟 "
+          return "󰌹 "
+      }
+      function image_icon_for(url,    ic) {
+          ic = domain_icon(url)
+          if (ic != "") return ic
+          return "󰋩 "
+      }
+
+
+      function format_inline(text, restore_fg,    out, repl, m) {
+
+          text = render_kbd_inline(text)
+          text = render_autolinks(text)
+          text = render_span_tags(text, restore_fg)
+          text = render_style_tags(text, restore_fg)
+
+          text = esc_encode(text) 
+
+
+          out = ""
+          while (match(text, /\[!\[([^\]]*)\]\([^)]+\)\]\(([^)]+)\)/, m)) {
+              out = out substr(text, 1, RSTART - 1)
+              repl = c_link osc8_pre m[2] osc8_st image_icon_for(m[2]) m[1] osc8_close reset restore_fg
+              out = out repl
+              text = substr(text, RSTART + RLENGTH)
+          }
+          text = out text 
+
+          out = ""
+          while (match(text, /!\[\[([^\]|]+)(\|([^\]]+))?\]\]/, m)) {
+              out = out substr(text, 1, RSTART - 1)
+              alias = (m[3] != "") ? m[3] : m[1]
+              repl = c_link osc8_pre m[1] osc8_st image_icon_for(m[1]) alias osc8_close reset restore_fg
+              out = out repl
+              text = substr(text, RSTART + RLENGTH)
+          }
+          text = out text
+
+          out = ""
+          while (match(text, /!\[([^\]]*)\]\(([^)]+)\)/, m)) {
+              out = out substr(text, 1, RSTART - 1)
+              repl = c_link osc8_pre m[2] osc8_st image_icon_for(m[2]) m[1] osc8_close reset restore_fg
+              out = out repl
+              text = substr(text, RSTART + RLENGTH)
+          }
+          text = out text 
+
+          gsub(/\033\[/, "\001ESC", text)
+
+          out = ""
+          while (match(text, /\[([^\]]+)\]\(([^)]+)\)/, m)) {
+              out = out substr(text, 1, RSTART - 1)
+              repl = c_link osc8_pre m[2] osc8_st link_icon_for(m[2]) m[1] osc8_close reset restore_fg
+              out = out repl
+              text = substr(text, RSTART + RLENGTH)
+          }
+          text = out text
+
+              out = ""
+              while (match(text, /\[([^\]]+)\]\[([^\]]*)\]/, m)) {
+                  out = out substr(text, 1, RSTART - 1)
+                  ref = (m[2] != "") ? tolower(m[2]) : tolower(m[1])
+                  if (ref in link_refs) {
+                      repl = c_link osc8_pre link_refs[ref] osc8_st link_icon_for(link_refs[ref]) m[1] osc8_close reset restore_fg
+                  } else {
+                      repl = "\033[4m" c_link m[1] reset restore_fg
+                  }
+                  out = out repl
+                  text = substr(text, RSTART + RLENGTH)
+              }
+              text = out text
+
+              out = ""
+              while (match(text, /\[([^\]]+)\]/, m)) {
+                  before = substr(text, 1, RSTART - 1)
+                  after  = substr(text, RSTART + RLENGTH)
+                  ref    = tolower(m[1])
+                  if (ref in link_refs && after !~ /^\(/ && after !~ /^\[/) {
+                      out = out before c_link osc8_pre link_refs[ref] osc8_st link_icon_for(link_refs[ref]) m[1] osc8_close reset restore_fg
+                      text = after
+                  } else {
+                      out = out before "[" m[1] "]"
+                      text = after
+                  }
+          }
+          text = out text
+          gsub(/\001ESC/, "\033[", text)
+
+          out = ""
+          while (match(text, /\[\[([^\]|]+)\|([^\]]+)\]\]/, m)) {
+              out = out substr(text, 1, RSTART - 1)
+              repl = c_link osc8_pre m[1] osc8_st link_icon_for(m[1]) m[2] osc8_close reset restore_fg
+              out = out repl
+              text = substr(text, RSTART + RLENGTH)
+          }
+          text = out text
+
+          out = ""
+          while (match(text, /\[\[([^\]]+)\]\]/, m)) {
+              out = out substr(text, 1, RSTART - 1)
+              repl = c_link osc8_pre m[1] osc8_st link_icon_for(m[1]) m[1] osc8_close reset restore_fg
+              out = out repl
+              text = substr(text, RSTART + RLENGTH)
+          }
+          text = out text
+
+
+          text = gensub(/\*\*\*(`[^`]+`)\*\*\*/, bold italic code_bg code_fg "\\1" reset restore_fg, "g", text)
+          text = gensub(bold italic code_bg code_fg "`([^`]+)`", bold italic code_bg code_fg "\\1", "g", text)
+
+          text = gensub(/\*\*(`[^`]+`)\*\*/, bold code_bg code_fg "\\1" reset restore_fg, "g", text)
+          text = gensub(bold code_bg code_fg "`([^`]+)`", bold code_bg code_fg "\\1", "g", text)
+
+          text = gensub(/\*(`[^`]+`)\*/, italic code_bg code_fg "\\1" reset restore_fg, "g", text)
+          text = gensub(italic code_bg code_fg "`([^`]+)`", italic code_bg code_fg "\\1", "g", text)
+
+          text = gensub(/\*\*\*([^*`]+)\*\*\*/, bold italic red "\\1" reset restore_fg, "g", text)
+          text = gensub(/\*\*([^*`]+)\*\*/,     bold red "\\1" reset restore_fg,        "g", text)
+          text = gensub(/\*([^*`]+)\*/,         italic red "\\1" reset restore_fg,      "g", text)
+
+          text = gensub(/`([^`]+)`/, code_bg code_fg "\\1" reset restore_fg, "g", text)
+
+          text = gensub(/~~([^~]+)~~/, "\033[9m\\1" reset restore_fg, "g", text)
+          text = gensub(/==([^=]+)==/, "\033[43m\033[30m\\1" reset restore_fg, "g", text)
+          
+          text = esc_decode(text)
+
+          return text
+      }
+
+      function get_style(type) {
+          if      (type == "ERROR")     { result[1] = ic_error;     result[2] = red     }
+          else if (type == "WARNING")   { result[1] = ic_warning;   result[2] = yellow  }
+          else if (type == "ATTENTION") { result[1] = ic_warning;   result[2] = yellow  }
+          else if (type == "CAUTION")   { result[1] = ic_caution;   result[2] = yellow  }
+          else if (type == "NOTE")      { result[1] = ic_note;      result[2] = blue    }
+          else if (type == "INFO")      { result[1] = ic_note;      result[2] = cyan    }
+          else if (type == "TIP")       { result[1] = ic_tip;       result[2] = green   }
+          else if (type == "HINT")      { result[1] = ic_tip;       result[2] = green   }
+          else if (type == "IMPORTANT") { result[1] = ic_important; result[2] = magenta }
+          else if (type == "SUCCESS")   { result[1] = ic_success;   result[2] = green   }
+          else if (type == "CHECK")     { result[1] = ic_success;   result[2] = green   }
+          else if (type == "DONE")      { result[1] = ic_success;   result[2] = green   }
+          else if (type == "QUESTION")  { result[1] = ic_question;  result[2] = yellow  }
+          else if (type == "FAQ")       { result[1] = ic_question;  result[2] = yellow  }
+          else if (type == "HELP")      { result[1] = ic_question;  result[2] = yellow  }
+          else if (type == "FAILURE")   { result[1] = ic_failure;   result[2] = red     }
+          else if (type == "FAIL")      { result[1] = ic_failure;   result[2] = red     }
+          else if (type == "MISSING")   { result[1] = ic_failure;   result[2] = red     }
+          else if (type == "DANGER")    { result[1] = ic_danger;    result[2] = red     }
+          else if (type == "BUG")       { result[1] = ic_bug;       result[2] = red     }
+          else if (type == "EXAMPLE")   { result[1] = ic_example;   result[2] = magenta }
+          else if (type == "QUOTE")     { result[1] = ic_quote;     result[2] = gray    }
+          else if (type == "CITE")      { result[1] = ic_quote;     result[2] = gray    }
+          else if (type == "ABSTRACT")  { result[1] = ic_abstract;  result[2] = cyan    }
+          else if (type == "SUMMARY")   { result[1] = ic_abstract;  result[2] = cyan    }
+          else if (type == "TLDR")      { result[1] = ic_abstract;  result[2] = cyan    }
+          else if (type == "TODO")      { result[1] = ic_todo;      result[2] = cyan    }
+          else                          { result[1] = "";           result[2] = gray    }
+      }
+       
+      function get_heading_style(level) {
+          if      (level == 1) { result[1] = ic_h1; result[2] = "\033[31m" }
+          else if (level == 2) { result[1] = ic_h2; result[2] = "\033[33m" }
+          else if (level == 3) { result[1] = ic_h3; result[2] = "\033[32m" }
+          else if (level == 4) { result[1] = ic_h4; result[2] = "\033[36m" }
+          else if (level == 5) { result[1] = ic_h5; result[2] = "\033[34m" }
+          else if (level == 6) { result[1] = ic_h6; result[2] = "\033[35m" }
+      }
+
+      function render_details(buf,    lines, n, i, sarr, summary_txt, body, found_summary, tmp_file, cmd, dline, pfx) {
+          n = split(buf, lines, "\n")
+          summary_txt   = ""
+          body          = ""
+          found_summary = 0
+          for (i = 1; i <= n; i++) {
+              if (!found_summary && match(lines[i], /^[[:space:]]*<summary>(.*)<\/summary>[[:space:]]*$/, sarr)) {
+                  summary_txt = sarr[1]
+                  gsub(/^[[:space:]]+|[[:space:]]+$/, "", summary_txt)
+                  found_summary = 1
+                  continue
+              }
+              body = (body != "") ? body "\n" lines[i] : lines[i]
+          }
+
+          pfx = gray DETAILS_BAR reset
+
+          if (summary_txt != "")
+              print pfx gray "▸ " reset bold format_inline(summary_txt, "") reset
+
+          gsub(/^\n+|\n+$/, "", body)
+          if (body == "") return
+
+          if (SELF_AWK == "") {
+              n = split(body, lines, "\n")
+              for (i = 1; i <= n; i++) print pfx lines[i]
+              return
+          }
+
+          tmp_seq++
+          tmp_file = "/tmp/_mdcat_details_" PROCINFO["pid"] "_" tmp_seq
+          printf "%s", body > tmp_file
+          close(tmp_file)
+
+          cmd = "gawk -v SELF_AWK=" "\"" SELF_AWK "\"" " -f \"" SELF_AWK "\" \"" tmp_file "\""
+          while ((cmd | getline dline) > 0)
+              print pfx dline
+          close(cmd)
+          system("rm -f \"" tmp_file "\"")
+      }
+
+      function render_html_blockquote(buf,    lines, n, i, tmp_file, cmd, dline, pfx, first_idx, probe) {
+          pfx = gray BAR_PREFIX fg_def
+          # NOTA: sin dewrap_hard_breaks() acá — mismo motivo que render_details:
+          # el cuerpo de un <blockquote> es Markdown+HTML mixto real, no HTML
+          # crudo garantizado, y el heurístico rompe tablas/listas/párrafos.
+
+          n = split(buf, lines, "\n")
+          first_idx = 0
+          for (i = 1; i <= n; i++) {
+              if (lines[i] !~ /^[[:space:]]*$/) { first_idx = i; break }
+          }
+          if (first_idx > 0) {
+              probe = lines[first_idx]
+              gsub(/^[[:space:]]*<p[^>]*>/, "", probe)
+              gsub(/<\/p>[[:space:]]*$/, "", probe)
+              gsub(/^[[:space:]]+/, "", probe)
+              if (match(probe, /^\[![A-Za-z]+\]/)) {
+                  lines[first_idx] = "> " probe
+                  buf = lines[1]
+                  for (i = 2; i <= n; i++) buf = buf "\n" lines[i]
+              }
+          }
+
+          if (SELF_AWK == "") {
+              n = split(buf, lines, "\n")
+              for (i = 1; i <= n; i++) print pfx lines[i]
+              return
+          }
+
+          tmp_seq++
+          tmp_file = "/tmp/_mdcat_bq_" PROCINFO["pid"] "_" tmp_seq
+          printf "%s", buf > tmp_file
+          close(tmp_file)
+
+          cmd = "gawk -v SELF_AWK=" "\"" SELF_AWK "\"" " -f \"" SELF_AWK "\" \"" tmp_file "\""
+          while ((cmd | getline dline) > 0)
+              print pfx dline
+          close(cmd)
+          system("rm -f \"" tmp_file "\"")
+      }
+       
+
+      in_html_comment {
+          if ($0 ~ /-->/) in_html_comment = 0
+          next
+      }
+      in_details_block {
+          line = $0
+          if (line ~ /^[[:space:]]*<details[^>]*>[[:space:]]*$/) {
+              details_nest++
+              details_buf = (details_buf != "") ? details_buf "\n" line : line
+              next
+          }
+          if (line ~ /^[[:space:]]*<\/details>[[:space:]]*$/) {
+              details_nest--
+              if (details_nest <= 0) {
+                  render_details(details_buf)
+                  in_details_block = 0
+                  details_buf       = ""
+                  details_nest      = 0
+                  next
+              }
+              details_buf = (details_buf != "") ? details_buf "\n" line : line
+              next
+          }
+          details_buf = (details_buf != "") ? details_buf "\n" line : line
+          next
+      }
+      in_html_table_block {
+          line = $0
+          if (line ~ /^[[:space:]]*<table[^>]*>[[:space:]]*$/) {
+              html_table_nest++
+              html_table_buf = (html_table_buf != "") ? html_table_buf "\n" line : line
+              next
+          }
+          if (line ~ /^[[:space:]]*<\/table>[[:space:]]*$/) {
+              html_table_nest--
+              if (html_table_nest <= 0) {
+                  render_html_table(html_table_buf, html_table_align)
+                  in_html_table_block = 0
+                  html_table_buf       = ""
+                  html_table_align     = ""
+                  html_table_nest      = 0
+                  next
+              }
+              html_table_buf = (html_table_buf != "") ? html_table_buf "\n" line : line
+              next
+          }
+          html_table_buf = (html_table_buf != "") ? html_table_buf "\n" line : line
+          next
+      }
+      in_html_pre_block {
+          line = $0
+          if (line ~ /^[[:space:]]*(<\/code>[[:space:]]*)?<\/pre>[[:space:]]*$/) {
+              render_code(html_pre_lang, decode_entities(html_pre_buf) "\n", "")
+              in_html_pre_block = 0
+              html_pre_buf       = ""
+              html_pre_lang      = ""
+              html_pre_first     = 0
+              next
+          }
+          if (html_pre_first) {
+              html_pre_first = 0
+              if (match(line, /^<code[^>]*class="[^"]*(language|lang)-([a-zA-Z0-9_+#.-]+)[^"]*"[^>]*>(.*)$/, arr)) {
+                  html_pre_lang = arr[2]
+                  line = arr[3]
+              } else if (match(line, /^<code[^>]*>(.*)$/, arr)) {
+                  line = arr[1]
+              }
+          }
+          gsub(/<\/code>[[:space:]]*$/, "", line)
+          gsub(/<\/?span[^>]*>/, "", line)
+          html_pre_buf = (html_pre_buf != "") ? html_pre_buf "\n" line : line
+          next
+      }
+      in_html_bq_block {
+          line = $0
+          if (line ~ /^[[:space:]]*<blockquote[^>]*>[[:space:]]*$/) {
+              html_bq_nest++
+              html_bq_buf = (html_bq_buf != "") ? html_bq_buf "\n" line : line
+              next
+          }
+          if (line ~ /^[[:space:]]*<\/blockquote>[[:space:]]*$/) {
+              html_bq_nest--
+              if (html_bq_nest <= 0) {
+                  render_html_blockquote(html_bq_buf)
+                  in_html_bq_block = 0
+                  html_bq_buf        = ""
+                  html_bq_nest       = 0
+                  next
+              }
+              html_bq_buf = (html_bq_buf != "") ? html_bq_buf "\n" line : line
+              next
+          }
+          html_bq_buf = (html_bq_buf != "") ? html_bq_buf "\n" line : line
+          next
+      }
+
+      /<!--/ && !in_code && !in_html_comment && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block {
+          line = $0
+          if (match(line, /<!--.*-->/)) {
+              gsub(/<!--.*-->/, "", line)
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+              if (line == "") next
+              $0 = line
+          } else {
+              in_html_comment = 1
+              next
+          }
+      }
+
+      /^[[:space:]]*<details[^>]*>[[:space:]]*$/ && !in_code && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block {
+          in_details_block = 1
+          details_nest      = 1
+          details_buf       = ""
+          next
+      }
+
+      /^[[:space:]]*<table[^>]*>[[:space:]]*$/ && !in_code && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block {
+          in_html_table_block = 1
+          html_table_nest      = 1
+          html_table_align     = get_table_align($0)
+          html_table_buf        = ""
+          next
+      }
+
+      /^[[:space:]]*<pre[^>]*>(<code[^>]*>)?[[:space:]]*$/ && !in_code && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block {
+          in_html_pre_block = 1
+          html_pre_buf       = ""
+          html_pre_lang      = ""
+          html_pre_first     = 1
+          if (match($0, /<code[^>]*class="[^"]*(language|lang)-([a-zA-Z0-9_+#.-]+)[^"]*"[^>]*>/, arr)) {
+              html_pre_lang  = arr[2]
+              html_pre_first = 0
+          } else if ($0 ~ /<code[^>]*>/) {
+              html_pre_first = 0
+          }
+          next
+      }
+
+      /^[[:space:]]*<pre[^>]*>/ && !in_code && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block {
+          in_html_pre_block = 1
+          html_pre_buf       = ""
+          html_pre_lang      = ""
+          html_pre_first     = 0
+          line = $0
+          match(line, /^[[:space:]]*<pre[^>]*>/)
+          line = substr(line, RSTART + RLENGTH)
+          if (match(line, /^<code[^>]*class="[^"]*(language|lang)-([a-zA-Z0-9_+#.-]+)[^"]*"[^>]*>/, arr)) {
+              html_pre_lang = arr[2]
+              line = substr(line, RSTART + RLENGTH)
+          } else if (match(line, /^<code[^>]*>/)) {
+              line = substr(line, RSTART + RLENGTH)
+          }
+          gsub(/<\/?span[^>]*>/, "", line)
+          gsub(/<[^>]*>/, "", line)
+          html_pre_buf = line
+          next
+      }
+
+      /^[[:space:]]*<blockquote[^>]*>[[:space:]]*$/ && !in_code && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block {
+          in_html_bq_block = 1
+          html_bq_nest       = 1
+          html_bq_buf        = ""
+          next
+      }
+
+      !in_code && !in_details_block && !in_html_table_block && !in_html_pre_block && !in_html_bq_block && !in_html_center && !in_html_comment && $0 !~ /<p[^>]*(align[[:space:]]*=|style="[^"]*text-align:)/ {
+          if ($0 ~ /^[[:space:]]*<p[^>]*>/ || $0 ~ /<\/p>[[:space:]]*$/) {
+              gsub(/^[[:space:]]*<p[^>]*>/, "")
+              gsub(/<\/p>[[:space:]]*$/, "")
+          }
+      }
+
+      /^[[:space:]]*<a[[:space:]][^>]*id="[^"]*"[^>]*>(.*)<\/a>[[:space:]]*$/ && !in_code && $0 !~ /href="/ {
+          match($0, /^[[:space:]]*<a[[:space:]][^>]*id="[^"]*"[^>]*>(.*)<\/a>[[:space:]]*$/, arr)
+          anchor_inner = arr[1]
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", anchor_inner)
+          if (anchor_inner == "") next
+          print format_inline(anchor_inner, "") reset
+          next
+      }
+
+      /^[[:space:]]*<a[[:space:]][^>]*href="[^"]*"[^>]*>/ && !in_anchor_block && !in_html_center {
+          line = $0
+          if (match(line, /<a[[:space:]][^>]*href="([^"]*)"[^>]*>/, arr)) {
+              anchor_href = arr[1]
+              rest_of_line = substr(line, RSTART + RLENGTH)
+              if (rest_of_line ~ /<\/a>/) {
+                  match(rest_of_line, /^(.*)<\/a>(.*)$/, arr2)
+                  print render_generic_html("<a href=\"" anchor_href "\">" arr2[1] "</a>") arr2[2]
+                  next
+              } else {
+                  anchor_buf = rest_of_line
+                  in_anchor_block = 1
+                  next
+              }
+          }
+      }
+      in_anchor_block {
+          line = $0
+          if (line ~ /<\/a>/) {
+              match(line, /^(.*)<\/a>(.*)$/, arr2)
+              anchor_buf = anchor_buf " " arr2[1]
+              print render_generic_html("<a href=\"" anchor_href "\">" anchor_buf "</a>") arr2[2]
+              in_anchor_block = 0
+              anchor_buf = ""
+              anchor_href = ""
+              next
+          }
+          anchor_buf = anchor_buf " " line
+          next
+      }
+
+      !in_code && !in_quote_code { $0 = decode_entities($0); $0 = convert_br($0) }
+      /^[[:space:]]*```/ {
+          if (!in_code) {
+              in_code   = 1
+              match($0, /^([[:space:]]*)```([a-zA-Z0-9_+#.-]*)/, arr)
+              code_indent = arr[1]
+              code_lang   = arr[2]
+              code_buf    = ""
+          } else {
+              in_code = 0
+              render_code(code_lang, code_buf, "")
+              code_lang   = ""
+              code_buf    = ""
+              code_indent = ""
+          }
+          next
+      }
+      in_code {
+          gsub(/\r$/, "", $0)
+          line_s = $0
+          if (code_indent != "" && substr(line_s, 1, length(code_indent)) == code_indent)
+              line_s = substr(line_s, length(code_indent) + 1)
+          code_buf = code_buf line_s "\n"
+          next
+      }
+
+      function linkify_html_anchors(str,    result, before, url, text, rest, arr) {
+          result = ""
+          rest = str
+          while (match(rest, /<a[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/, arr)) {
+              before = substr(rest, 1, RSTART - 1)
+              url  = arr[1]
+              text = arr[2]
+              result = result before osc8_pre url osc8_st c_link link_icon_for(url) text reset osc8_close
+              rest = substr(rest, RSTART + RLENGTH)
+          }
+          result = result rest
+          return result
+      }
+
+      function render_img_inline_plain(str,    result, rest, arr, a2, tag, alt, w, h, dims, dt, m_start, m_len) {
+          result = ""
+          rest = str
+          while (match(rest, /<img[^>]*>/, arr)) {
+              m_start = RSTART
+              m_len   = RLENGTH
+              tag = arr[0]
+              alt = ""; w = ""; h = ""
+              if (match(tag, /alt="([^"]*)"/, a2))       alt = a2[1]
+              if (match(tag, /width="?([0-9]+)(px)?"?/, a2))  w = a2[1]
+              if (match(tag, /height="?([0-9]+)(px)?"?/, a2)) h = a2[1]
+              if (is_zero_size_img(w, h)) {
+                  result = result substr(rest, 1, m_start - 1)
+                  rest = substr(rest, m_start + m_len)
+                  continue
+              }
+              result = result substr(rest, 1, m_start - 1)
+              if (alt == "") alt = "imagen"
+              dt = dims_text(w, h)
+              dims = (dt != "") ? (" (" dt ")") : ""
+              result = result "🖼 " alt dims
+              rest = substr(rest, m_start + m_len)
+          }
+          result = result rest
+          return result
+      }
+
+      function dewrap_hard_breaks(buf,    lines, n, i, out, prev_line, cur) {
+          n = split(buf, lines, "\n")
+          if (n <= 1) return buf
+          out = lines[1]
+          prev_line = lines[1]
+          for (i = 2; i <= n; i++) {
+              cur = lines[i]
+              if (prev_line != "" && cur != "" && prev_line !~ />$/ && cur !~ /^</) {
+                  out = out cur
+                  prev_line = prev_line cur
+              } else {
+                  out = out "\n" cur
+                  prev_line = cur
+              }
+          }
+          return out
+      }
+
+      function render_generic_html(raw,    out, arr, href) {
+          gsub(/[\t\n]+/, " ", raw)
+          gsub(/  +/, " ", raw)
+          gsub(/^ +| +$/, "", raw)
+
+          if (match(raw, /^<a[[:space:]][^>]*href="([^"]*)"[^>]*>(.*)<\/a>$/, arr)) {
+              href = arr[1]
+              raw  = arr[2]
+
+              raw = render_img_inline_plain(raw)
+
+              out = ""
+              while (match(raw, /<sup>([^<]*)<\/sup>/, arr)) {
+                  out = out substr(raw, 1, RSTART - 1) gray arr[1] reset c_link
+                  raw = substr(raw, RSTART + RLENGTH)
+              }
+              raw = out raw
+
+              gsub(/<[^>]*>/, "", raw)
+              gsub(/^ +| +$/, "", raw)
+              gsub(/  +/, " ", raw)
+
+              return osc8_pre href osc8_st c_link link_icon_for(href) raw reset osc8_close
+          }
+
+          raw = render_img_inline(raw)
+
+          out = ""
+          while (match(raw, /<sup>([^<]*)<\/sup>/, arr)) {
+              out = out substr(raw, 1, RSTART - 1) gray arr[1] reset
+              raw = substr(raw, RSTART + RLENGTH)
+          }
+          raw = out raw
+
+          gsub(/<a /, "\001A ", raw)
+          gsub(/<a>/, "\001A>", raw)
+          gsub(/<\/a>/, "\001Z", raw)
+          gsub(/<[^>]*>/, "", raw)
+          gsub(/\001A/, "<a", raw)
+          gsub(/\001Z/, "</a>", raw)
+
+          raw = linkify_html_anchors(raw)
+          return format_inline(raw, "")
+      }
+
+      function get_div_align(line,    a) {
+          if (match(line, /align[[:space:]]*=[[:space:]]*"?(left|right|center|justify)"?/, a)) return tolower(a[1])
+          if (match(line, /style="[^"]*text-align:[[:space:]]*(left|right|center|justify)/, a)) return tolower(a[1])
+          return "center"
+      }
+
+      function get_table_align(line,    a) {
+          if (match(line, /align[[:space:]]*=[[:space:]]*"?(left|right|center|justify)"?/, a)) return tolower(a[1])
+          if (match(line, /style="[^"]*text-align:[[:space:]]*(left|right|center|justify)/, a)) return tolower(a[1])
+          return "left"
+      }
+
+      function render_html_table(buf, block_align,    rest, after_tr, row_content, row_cells, rc,
+                                  tag_match, cell_tag, cell_align, cell_span, cell_width_pct, after_open, close_re, cell_body,
+                                  ncells, col_align_seen, j, al, sp, wp, m_start, m_len) {
+          delete tbl_data
+          delete col_align
+          delete col_w
+          delete col_align_seen
+          delete tbl_colspan
+          delete col_width_pct
+          tbl_rows = 0
+
+          rest = dewrap_hard_breaks(buf)
+          while (match(rest, /<tr[^>]*>/)) {
+              after_tr = substr(rest, RSTART + RLENGTH)
+              if (!match(after_tr, /<\/tr>/)) break   # <tr> sin cerrar → se corta acá
+              row_content = substr(after_tr, 1, RSTART - 1)
+              rest        = substr(after_tr, RSTART + RLENGTH)
+
+              rc     = row_content
+              ncells = 0
+              col_ptr = 1
+              row_cells = ""
+              while (match(rc, /<(th|td)[^>]*>/)) {
+                  m_start    = RSTART   
+                  m_len      = RLENGTH  
+                  tag_match  = substr(rc, m_start, m_len)
+                  cell_tag   = (tolower(substr(tag_match, 1, 3)) == "<th") ? "th" : "td"
+                  cell_align = "left"
+                  if (match(tag_match, /align[[:space:]]*=[[:space:]]*"?(left|right|center|justify)"?/, al))
+                      cell_align = tolower(al[1])
+
+                  cell_span = 1
+                  if (match(tag_match, /colspan[[:space:]]*=[[:space:]]*"?([0-9]+)"?/, sp)) {
+                      cell_span = sp[1] + 0
+                      if (cell_span < 1) cell_span = 1
+                  }
+
+                  cell_width_pct = 0
+                  if (match(tag_match, /width[[:space:]]*=[[:space:]]*"?([0-9.]+)%"?/, wp))
+                      cell_width_pct = wp[1] + 0
+
+                  after_open = substr(rc, m_start + m_len)
+                  close_re   = "</" cell_tag ">"
+                  if (match(after_open, close_re)) {
+                      cell_body = substr(after_open, 1, RSTART - 1)
+                      rc        = substr(after_open, RSTART + RLENGTH)
+                  } else {
+                      cell_body = after_open
+                      rc        = ""
+                  }
+
+                  ncells++
+                  col_align_seen[col_ptr] = cell_align
+                  tbl_colspan[tbl_rows, ncells] = cell_span
+                  if (cell_width_pct > 0) col_width_pct[col_ptr] = cell_width_pct
+
+                  cell_body = decode_entities(cell_body)
+                  cell_body = convert_br(cell_body)
+                  cell_body = render_generic_html(cell_body)
+
+                  gsub(/\|/, _ec_enc["|"], cell_body)
+
+                  row_cells = (row_cells == "") ? cell_body : row_cells "|" cell_body
+                  col_ptr += cell_span
+              }
+
+              if (ncells > 0) {
+                  tbl_data[tbl_rows] = row_cells
+                  tbl_rows++
+              }
+          }
+
+          for (j in col_align_seen) col_align[j] = col_align_seen[j]
+
+          if (tbl_rows > 0) render_table("", block_align)
+
+          tbl_rows = 0
+          delete tbl_data
+          delete col_align
+          delete col_w
+          delete tbl_colspan
+          delete col_width_pct
+      }
+
+      function join_inline_lines(str,    parts, n, i, line, buf, out) {
+          n = split(str, parts, /\n/)
+          buf = ""; out = ""
+          for (i = 1; i <= n; i++) {
+              line = parts[i]
+              gsub(/^ +| +$/, "", line)
+              if (line == "") {
+                  if (buf != "") { out = out (out != "" ? "\n" : "") buf; buf = "" }
+                  continue
+              }
+              if (line ~ /^!\[/) {
+                  # Línea de imagen → es un bloque propio, no se une con nada
+                  if (buf != "") { out = out (out != "" ? "\n" : "") buf; buf = "" }
+                  out = out (out != "" ? "\n" : "") line
+              } else {
+                  # Contenido inline → acumular en el buffer de la línea actual
+                  buf = buf (buf != "" ? " " : "") line
+              }
+          }
+          if (buf != "") out = out (out != "" ? "\n" : "") buf
+          return out
+      }
+
+      function collapse_link_newlines(str,    out, i, c, depth, len) {
+          out = ""; depth = 0; len = length(str)
+          for (i = 1; i <= len; i++) {
+              c = substr(str, i, 1)
+              if      (c == "[")               { depth++; out = out c }
+              else if (c == "]" && depth > 0)  { depth--; out = out c }
+              else if (c == "\n" && depth > 0) out = out " "   # <br> dentro de link → espacio
+              else                              out = out c
+          }
+          return out
+      }
+
+      function render_aligned_html(raw, align,    processed, n, nw, i, l, segs, line, wrapped, term_cols, line_out, pad, visw, _ha, _lvl, _ttl, _icon, _hfg, _indent, _hi, _out, _visw, _pad) {
+
+          term_cols = 0
+          "stty size < /dev/tty 2>/dev/null" | getline _stty_out2
+          close("stty size < /dev/tty 2>/dev/null")
+          split(_stty_out2, _stty_parts2, " ")
+          term_cols = _stty_parts2[2] + 0
+          if (term_cols <= 0) term_cols = 80
+
+          raw = collapse_link_newlines(raw)
+          raw = join_inline_lines(raw)        
+
+          n = split(raw, segs, /\n/)
+          for (l = 1; l <= n; l++) {
+              line = segs[l]
+              gsub(/  +/, " ", line)
+              gsub(/^ +| +$/, "", line)
+              if (line == "") continue
+
+              if (match(line, /<[hH]([1-6])[^>]*>[[:space:]]*(.*)<\/[^>]+>/, _ha)) {
+                  _lvl = _ha[1] + 0
+                  _ttl = _ha[2]; gsub(/^[[:space:]]+|[[:space:]]+$/, "", _ttl)
+                  get_heading_style(_lvl)
+                  _icon = result[1]; _hfg = result[2]
+                  _indent = ""
+                  for (_hi = 1; _hi < _lvl; _hi++) _indent = _indent "  "
+                  _out = _hfg _indent _icon " " format_inline(_ttl, _hfg) reset
+                  _visw = visible_len(_out)
+                  if (align == "right")     _pad = term_cols - _visw - 2
+                  else if (align == "left") _pad = 0
+                  else                      _pad = int((term_cols - _visw) / 2)
+                  if (_pad < 0) _pad = 0
+                  printf "%*s%s\n", _pad, "", _out
+                  continue
+              }
+              
+              processed = render_img_inline(line)
+              processed = linkify_html_anchors(processed)
+              processed = format_inline(processed, "")
+
+              delete wrapped
+              nw = wrap_cell(processed, term_cols - 4, wrapped, 1)
+              for (i = 0; i < nw; i++) {
+                  line_out = wrapped[1, i]
+                  visw = visible_len(line_out)
+                  if (align == "right")
+                      pad = term_cols - visw - 2
+                  else if (align == "left" || align == "justify")
+                      pad = 0
+                  else
+                      pad = int((term_cols - visw) / 2)
+                  if (pad < 0) pad = 0
+                  printf "%*s%s\n", pad, "", line_out
+              }
+          }
+      }
+      /<(div|p)[^>]*(align[[:space:]]*=[[:space:]]*"?(left|right|center|justify)"?|style="[^"]*text-align:[[:space:]]*(left|right|center|justify))[^>]*>/ && !in_html_center {
+          line = $0
+          html_center_align = get_div_align(line)
+          if (match(line, /<(div|p)[^>]*>(.*)<\/(div|p)>/, arr)) {
+              render_aligned_html(arr[2], html_center_align)
+              next
+          }
+          match(line, /<(div|p)[^>]*>(.*)$/, arr)
+          in_html_center    = 1
+          html_center_buf   = arr[2]
+          html_center_open  = line
+          html_center_lines = 0
+          next
+      }
+      in_html_center {
+          if ($0 ~ /<\/(div|p)>/) {
+              line = $0
+              sub(/<\/(div|p)>.*/, "", line)
+              gsub(/<(div|p)[^>]*>/, "", line)
+              html_center_buf = (html_center_buf != "") ? html_center_buf "\n" line : line
+              in_html_center = 0
+              render_aligned_html(html_center_buf, html_center_align)
+              html_center_buf = ""
+              html_center_align = ""
+              html_center_open = ""
+              html_center_lines = 0
+              next
+          }
+          html_center_lines++
+          if (html_center_lines > 200) {
+              # <div/p align="..."> sin cierre — sintaxis inválida, texto plano
+              print html_center_open
+              if (html_center_buf != "") print html_center_buf
+              in_html_center = 0
+              html_center_buf = ""
+              html_center_align = ""
+              html_center_open = ""
+              html_center_lines = 0
+          } else {
+              line2 = $0
+              gsub(/<(div|p)[^>]*>/, "", line2)
+              html_center_buf = (html_center_buf != "") ? html_center_buf "\n" line2 : line2
+              next
+          }
+      }
+
+      /^[[:space:]]*<img[[:space:]][^>]*>[[:space:]]*$/ {
+          line = $0
+          alt = ""; src = ""; w = ""; h = ""
+          if (match(line, /alt="([^"]*)"/, arr))       alt = arr[1]
+          if (match(line, /src="([^"]*)"/, arr))       src = arr[1]
+          if (match(line, /width="?([0-9]+)(px)?"?/, arr))  w = arr[1]
+          if (match(line, /height="?([0-9]+)(px)?"?/, arr)) h = arr[1]
+          if (is_zero_size_img(w, h)) next
+          if (alt == "") alt = "imagen"
+          dt = dims_text(w, h)
+          dims = (dt != "") ? ("  " gray "(" dt ")" reset) : ""
+          if (src != "")
+              print gray image_icon_for(src) reset osc8_pre src osc8_st c_link alt reset osc8_close dims
+          else
+              print gray "󰋩 " reset alt dims
+          next
+      }
+
+      /^(> *)+\[!/ {
+          depth = get_depth($0)
+          rest  = $0
+          for (i = 0; i < depth; i++) sub(/^> ?/, "", rest)
+       
+          if (rest ~ /^[[:space:]]*```/) {
+              sub(/^[[:space:]]*/, "", rest)
+              gsub(/\r$/, "", rest)
+              prefix = make_prefix(depth)
+              cur_fg = (color_stack[depth] != "") ? color_stack[depth] : gray
+              if (!in_quote_code) {
+                  if (in_quote_table) flush_quote_table()
+                  in_quote_code   = 1
+                  match(rest, /^```([a-zA-Z0-9_+#.-]*)/, arr)
+                  quote_code_lang = arr[1]
+                  quote_code_buf  = ""
+                  quote_code_pfx  = prefix cur_fg BAR_PREFIX fg_def
+              } else {
+                  in_quote_code = 0
+                  render_code(quote_code_lang, quote_code_buf, quote_code_pfx)
+                  quote_code_lang = ""
+                  quote_code_buf  = ""
+              }
+              next
+          } 
+
+
+          if (callout_open[depth]) {
+              prefix = make_prefix(depth)
+              # cur_fg = color_stack[depth]
+              cur_fg = (color_stack[depth] != "") ? color_stack[depth] : gray 
+              if (!in_code && match(rest, /^[-*+] +(.*)/, arr))
+                  print_wrapped(prefix, cur_fg, fg_def, arr[1], "•")
+              else
+                  print_wrapped(prefix, cur_fg, fg_def, rest, "")
+              next
+          }
+          if (in_quote_table) flush_quote_table() 
+
+          match(rest, /^\[!([A-Z]+)\] *(.*)/, arr)
+          type  = toupper(arr[1])
+          title = arr[2]
+          gsub(/^ *| *$/, "", title)
+          if (title == "") title = type
+       
+          get_style(type)
+          icon   = result[1]
+          cur_fg = result[2]
+       
+          color_stack[depth]  = cur_fg
+          callout_open[depth] = 1
+          for (i = depth + 1; i <= 10; i++) callout_open[i] = 0
+       
+          prefix = make_prefix(depth)
+          print prefix cur_fg BAR_PREFIX icon " " fg_def format_inline(title, fg_def) reset
+          next
+      }
+
+      /^( *)[-*+][[:space:]]+\[[xX]\][[:space:]]/ {
+          match($0, /^( *)/, arr); indent = arr[1]
+          sub(/^( *)[-*+][[:space:]]+\[[xX]\][[:space:]]/, "", $0)
+          print indent "\033[1;32m 󰱒\033[0m " format_inline($0, fg_def) reset
+          next
+      }
+      /^( *)[-*+][[:space:]]+\[-\][[:space:]]/ {
+          match($0, /^( *)/, arr); indent = arr[1]
+          sub(/^( *)[-*+][[:space:]]+\[-\][[:space:]]/, "", $0)
+          print indent "\033[33m 󰥔\033[0m " format_inline($0, fg_def) reset
+          next
+      }
+      /^( *)[-*+][[:space:]]+\[[[:space:]]\][[:space:]]/ {
+          match($0, /^( *)/, arr); indent = arr[1]
+          sub(/^( *)[-*+][[:space:]]+\[[[:space:]]\][[:space:]]/, "", $0)
+          print indent "\033[90m 󰄱\033[0m " format_inline($0, fg_def) reset
+          next
+      }
+       
+      /^(> *)+/ {
+          depth  = get_depth($0)
+          rest   = $0
+          for (i = 0; i < depth; i++) sub(/^> ?/, "", rest)
+          prefix = make_prefix(depth)
+          # cur_fg = color_stack[depth]
+          cur_fg = (color_stack[depth] != "") ? color_stack[depth] : gray 
+          callout_open[depth] = 1
+
+          if (rest ~ /^[[:space:]]*```/) {
+              sub(/^[[:space:]]*/, "", rest)
+              if (!in_quote_code) {
+                  if (in_quote_table) flush_quote_table()
+                  in_quote_code   = 1
+                  match(rest, /^```([a-zA-Z0-9_+#.-]*)/, arr)
+                  quote_code_lang = arr[1]
+                  quote_code_buf  = ""
+                  quote_code_pfx  = prefix cur_fg BAR_PREFIX fg_def
+              } else {
+                  in_quote_code = 0
+                  render_code(quote_code_lang, quote_code_buf, quote_code_pfx)
+                  quote_code_lang = ""
+                  quote_code_buf  = ""
+              }
+              next
+          }
+
+          if (in_quote_code) {
+              gsub(/\r$/, "", rest)
+              quote_code_buf = quote_code_buf rest "\n"
+              next
+          }
+
+        if (rest ~ /^\|/) {
+            if (in_quote_table && depth != quote_tbl_depth) {
+                flush_quote_table()
+            }
+
+            if (rest ~ /^[|][[:space:]]*[-:]+[-|: ]*\r?$/) {
+                row = rest
+                sub(/^[|]/, "", row)
+                sub(/[|][[:space:]]*$/, "", row)
+                n = split(row, align_cols, "|")
+                for (j = 1; j <= n; j++) {
+                    gsub(/^[[:space:]]+|[[:space:]]+$/, "", align_cols[j])
+                    if (align_cols[j] ~ /^:-+:$/) q_col_align[j] = "center"
+                    else if (align_cols[j] ~ /^-+:$/) q_col_align[j] = "right"
+                    else q_col_align[j] = "left"
+                }
+                next
+            }
+            if (!in_quote_table) {
+                in_quote_table   = 1
+                quote_tbl_depth  = depth
+                quote_tbl_prefix = prefix cur_fg BAR_PREFIX fg_def
+                qtbl_rows = 0
+                delete q_tbl_data
+                delete q_col_align
+            }
+            row = rest
+            sub(/^[|]/, "", row)
+            sub(/[|][[:space:]]*$/, "", row)
+            q_tbl_data[qtbl_rows] = row
+            qtbl_rows++
+            next
+        }
+        if (in_quote_table) flush_quote_table()
+
+          if (!in_code && match(rest, /^[-*+] +(.*)/, arr))
+              print_wrapped(prefix, cur_fg, fg_def, arr[1], "•")
+          else
+              print_wrapped(prefix, cur_fg, fg_def, rest, "")
+          next
+      }
+
+      !(/^(> *)+/) && in_quote_table {
+          flush_quote_table()
+          if ($0 == "") next 
+      }
+
+      function resolve_lang(lang,    key) {
+          if (lang == "") return lang
+          key = tolower(lang)
+          if (key in lang_alias) return lang_alias[key]
+          return lang
+      }
+
+      function load_lang_icons(    line, f, n) {
+          if (icons_loaded) return
+          icons_loaded = 1
+          icons_path = ICONS_DIR "/lang_icons.tsv"
+          while ((getline line < icons_path) > 0) {
+              n = split(line, f, "\t")
+              if (n >= 2) {
+                  lang_icon[f[1]] = f[2]
+                  if (n >= 3 && f[3] != "") lang_color[f[1]] = f[3]
+              }
+          }
+          close(icons_path)
+      }
+      function render_code(lang, buf, line_prefix,    tmp_file, bat_cmd, tmp_bat_out, n_colored, li, bat_line, save_ic, colored_line, bat_lang, bat_status, icon, lang_lc, term_w, prefix_w, usable_w, wrapped, nw, wi, seg, vlen, pad, k) {
+          tmp_seq++
+          load_lang_icons()
+
+          lang_lc = tolower(lang)
+          icon = (lang_lc in lang_icon) ? lang_icon[lang_lc] : "󰅬"
+          icon_color = (lang_lc in lang_color) ? "\033[38;5;" lang_color[lang_lc] "m" : gray
+
+          if (lang != "")
+              print line_prefix icon_color icon " " b_blue lang reset
+          else
+              print line_prefix gray "󰅬 " b_blue "code" reset
+
+          tmp_file = "/tmp/_mdcat_bat_" PROCINFO["pid"] "_" tmp_seq
+          printf "%s", buf > tmp_file
+          close(tmp_file)
+          system("expand -t 4 " tmp_file " > " tmp_file ".e && mv " tmp_file ".e " tmp_file)
+          bat_lang = resolve_lang(lang)
+          bat_cmd = "bat --theme='ansi' --color=always --style=plain --wrap=never --paging=never" \
+                    (bat_lang != "" ? " --language=" bat_lang : "") \
+                    " " tmp_file
+          tmp_bat_out = tmp_file ".out"
+          bat_status = system(bat_cmd " > " tmp_bat_out " 2>/dev/null")
+          if (bat_status != 0 && bat_lang != "") {
+              bat_cmd = "bat --theme='ansi' --color=always --style=plain --wrap=never --paging=never " tmp_file
+              system(bat_cmd " > " tmp_bat_out " 2>/dev/null")
+          }
+          n_colored = 0
+          while ((("cat " tmp_bat_out) | getline colored_line) > 0) {
+              colored_lines[n_colored++] = colored_line
+          }
+          close("cat " tmp_bat_out)
+          system("rm -f " tmp_bat_out " " tmp_file)
+
+          term_w = 0
+          "stty size < /dev/tty 2>/dev/null" | getline _stty_code
+          close("stty size < /dev/tty 2>/dev/null")
+          split(_stty_code, _stty_code_p, " ")
+          term_w = _stty_code_p[2] + 0
+          if (term_w <= 0) term_w = 80
+
+          prefix_w = visible_len(line_prefix)
+          usable_w = term_w - prefix_w
+          if (usable_w < 10) usable_w = 10
+
+          for (li = 0; li < n_colored; li++) {
+              bat_line = colored_lines[li]
+              save_ic = IGNORECASE
+              IGNORECASE = 0
+              gsub(/\x1b\[[0-9;:]*[A-Za-ln-z]/, "", bat_line)
+              IGNORECASE = save_ic
+              gsub(/\x1b\[[0-9;]*m/, "&\x1b[22m" code_bg, bat_line)
+
+              delete wrapped
+              nw = wrap_cell(bat_line, usable_w, wrapped, 1)
+              for (wi = 0; wi < nw; wi++) {
+                  seg  = wrapped[1, wi]
+                  vlen = visible_len(seg)
+                  pad  = ""
+                  for (k = vlen; k < usable_w; k++) pad = pad " "
+                  printf "%s%s%s%s\x1b[0m\n", line_prefix, code_bg, seg, pad
+              }
+          }
+          delete colored_lines
+      }
+      /^[[:space:]]*<[hH][1-6][^>]*>.*<\/[^>]+>/ && !in_code {
+          line_h = $0
+          match(line_h, /<[hH]([1-6])[^>]*>[[:space:]]*(.*)<\/[^>]+>/, arr)
+          level = arr[1] + 0
+          title = arr[2]
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", title)
+          title = render_img_inline(title)
+          title = linkify_html_anchors(title)
+          get_heading_style(level)
+          icon   = result[1]
+          cur_fg = result[2]
+
+          h_align = ""
+          if (match(line_h, /align[[:space:]]*=[[:space:]]*"?(left|right|center|justify)"?/, a_h)) h_align = tolower(a_h[1])
+          else if (match(line_h, /style="[^"]*text-align:[[:space:]]*(left|right|center|justify)/, a_h)) h_align = tolower(a_h[1])
+
+          if (h_align != "" && h_align != "left") {
+              cmd_hw = "stty size < /dev/tty 2>/dev/null"
+              cmd_hw | getline _stty_h
+              close(cmd_hw)
+              split(_stty_h, _stty_hp, " ")
+              term_w_h = _stty_hp[2] + 0
+              if (term_w_h <= 0) term_w_h = 80
+              out_h = cur_fg icon " " format_inline(title, cur_fg) reset
+              visw_h = visible_len(out_h)
+              if (h_align == "right") pad_h = term_w_h - visw_h - 2
+              else pad_h = int((term_w_h - visw_h) / 2)   # center o justify → centrado
+              if (pad_h < 0) pad_h = 0
+              printf "%*s%s\n", pad_h, "", out_h
+              next
+          }
+
+          indent = ""
+          for (i = 1; i < level; i++) indent = indent "  "
+          print cur_fg indent icon " " format_inline(title, cur_fg) reset
+          next
+      }
+      /^[[:space:]]*<[hH][1-6][^>]*>[[:space:]]*$/ && !in_code {
+          match($0, /<[hH]([1-6])[^>]*>/, arr)
+          html_h_level = arr[1] + 0
+          html_h_buf   = ""
+          in_html_h    = 1
+          next
+      }
+
+      /^[[:space:]]*<\/[^>]+>[[:space:]]*$/ && in_html_h {
+          get_heading_style(html_h_level)
+          icon   = result[1]
+          cur_fg = result[2]
+          indent = ""
+          for (i = 1; i < html_h_level; i++) indent = indent "  "
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", html_h_buf)
+          html_h_buf = render_img_inline(html_h_buf)
+          html_h_buf = linkify_html_anchors(html_h_buf)
+          print cur_fg indent icon " " format_inline(html_h_buf, cur_fg) reset
+          in_html_h    = 0
+          html_h_level = 0
+          html_h_buf   = ""
+          next
+      }
+
+      in_html_h && !in_code {
+          line = $0
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          if (line != "")
+              html_h_buf = html_h_buf (html_h_buf != "" ? " " : "") line
+          next
+      }
+
+      /^[[:space:]]*<(b|bold|strong|i|italic|em|code|u|ins|s|strike|del|mark)>[[:space:]]*$/ && !in_code && !in_style_block {
+          in_style_block    = 1
+          style_block_depth = 1
+          style_block_buf   = $0
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", style_block_buf)
+          next
+      }
+      /^[[:space:]]*<(b|bold|strong|i|italic|em|code|u|ins|s|strike|del|mark)>[[:space:]]*$/ && !in_code && in_style_block {
+          style_block_depth++
+          line = $0
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          style_block_buf = style_block_buf " " line
+          next
+      }
+      /^[[:space:]]*<\/(b|bold|strong|i|italic|em|code|u|ins|s|strike|del|mark)>[[:space:]]*$/ && !in_code && in_style_block {
+          line = $0
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          style_block_buf = style_block_buf " " line
+          style_block_depth--
+          if (style_block_depth <= 0) {
+              print format_inline(style_block_buf, "") reset
+              in_style_block    = 0
+              style_block_depth = 0
+              style_block_buf   = ""
+          }
+          next
+      }
+      in_style_block && !in_code {
+          line = $0
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+          if (line != "")
+              style_block_buf = style_block_buf " " line
+          next
+      }
+
+      /^#{1,6} / {
+          match($0, /^(#+) (.*)/, arr)
+          level  = length(arr[1])
+          title  = arr[2]
+          get_heading_style(level)
+          icon   = result[1]
+          cur_fg = result[2]
+          indent = ""
+          for (i = 1; i < level; i++) indent = indent "  "
+          print cur_fg indent icon " " format_inline(title, cur_fg) reset
+          next
+      }
+
+      function print_hr(    cmd, _stty_out3, _stty_parts3, cols, i, hr) {
+          cmd = "stty size < /dev/tty 2>/dev/null"
+          cmd | getline _stty_out3
+          close(cmd)
+          split(_stty_out3, _stty_parts3, " ")
+          cols = _stty_parts3[2] + 0
+          if (cols <= 0) cols = 80
+          hr = ""
+          for (i = 1; i <= cols; i++) hr = hr "─"
+          print gray hr reset
+      }
+      /^---/ && !in_code {
+          print_hr()
+          next
+      }
+      # <hr>, <hr/>, <hr />, <hr class="...">  — equivalente HTML de "---"
+      /^[[:space:]]*<hr[^>]*>[[:space:]]*$/ && !in_code {
+          print_hr()
+          next
+      }
+       
+      /^( *)[-*+] +/ {
+          match($0, /^( *)/, arr)
+          indent = arr[1]
+          sub(/^( *)[-*+] +/, "", $0)
+          print indent gray " • " fg_def format_inline($0, fg_def) reset
+          next
+      }
+
+      /^( *)[0-9]+[.)] +/ {
+          match($0, /^( *)/, arr)
+          indent = arr[1]
+          match($0, /^( *)([0-9]+)[.)] +/, arr2)
+          num = arr2[2]
+          sub(/^( *)[0-9]+[.)] +/, "", $0)
+          print indent gray " " num "." fg_def " " format_inline($0, fg_def) reset
+          next
+      }
+
+      /^[[:space:]]*<ul[^>]*>[[:space:]]*$/ && !in_code {
+          html_list_depth++
+          html_list_type[html_list_depth] = "ul"
+          next
+      }
+      /^[[:space:]]*<ol[^>]*>[[:space:]]*$/ && !in_code {
+          html_list_depth++
+          html_list_type[html_list_depth] = "ol"
+          html_ol_counter[html_list_depth] = 0
+          next
+      }
+      /^[[:space:]]*<\/(ul|ol)>[[:space:]]*$/ && !in_code {
+          if (html_list_depth > 0) html_list_depth--
+          next
+      }
+      /^[[:space:]]*<li>.*<\/li>[[:space:]]*$/ && !in_code {
+          html_li_line = $0
+          sub(/^[[:space:]]*<li>/, "", html_li_line)
+          sub(/<\/li>[[:space:]]*$/, "", html_li_line)
+          html_li_indent = ""
+          for (html_li_i = 1; html_li_i < html_list_depth; html_li_i++) html_li_indent = html_li_indent "  "
+
+          if (match(html_li_line, /^<input[^>]*type=["']?checkbox["']?[^>]*>[[:space:]]*/)) {
+              html_li_checked = (html_li_line ~ /<input[^>]*checked/)
+              sub(/^<input[^>]*>[[:space:]]*/, "", html_li_line)
+              if (html_li_checked)
+                  print html_li_indent "\033[1;32m 󰱒\033[0m " format_inline(html_li_line, fg_def) reset
+              else
+                  print html_li_indent "\033[90m 󰄱\033[0m " format_inline(html_li_line, fg_def) reset
+          } else if (match(html_li_line, /^\[[xX]\][[:space:]]/)) {
+              print html_li_indent "\033[1;32m 󰱒\033[0m " format_inline(html_li_line, fg_def) reset
+          } else if (match(html_li_line, /^\[-\][[:space:]]/)) {
+              sub(/^\[-\][[:space:]]/, "", html_li_line)
+              print html_li_indent "\033[33m 󰥔\033[0m " format_inline(html_li_line, fg_def) reset
+          } else if (match(html_li_line, /^\[[[:space:]]\][[:space:]]/)) {
+              sub(/^\[[[:space:]]\][[:space:]]/, "", html_li_line)
+              print html_li_indent "\033[90m 󰄱\033[0m " format_inline(html_li_line, fg_def) reset
+          } else if (html_list_type[html_list_depth] == "ol") {
+              html_ol_counter[html_list_depth]++
+              print html_li_indent gray " " html_ol_counter[html_list_depth] "." fg_def " " format_inline(html_li_line, fg_def) reset
+          } else {
+              print html_li_indent gray " • " fg_def format_inline(html_li_line, fg_def) reset
+          }
+          next
+      }
+
+      /^\|/ && !in_code {
+          if ($0 ~ /^[|][[:space:]]*[-:]+[-|: ]*\r?$/) {
+              row = $0
+              sub(/^[|]/, "", row)
+              sub(/[|][[:space:]]*$/, "", row)
+              n = split(row, align_cols, "|")
+              for (j = 1; j <= n; j++) {
+                  gsub(/^[[:space:]]+|[[:space:]]+$/, "", align_cols[j])
+                  if (align_cols[j] ~ /^:-+:$/) col_align[j] = "center"
+                  else if (align_cols[j] ~ /^-+:$/) col_align[j] = "right"
+                  else col_align[j] = "left"
+              }
+              next
+          }
+
+          in_table = 1
+          row = $0
+          sub(/^[|]/, "", row)
+          sub(/[|][[:space:]]*$/, "", row)
+          tbl_data[tbl_rows] = row
+          tbl_rows++
+          next
+      }
+
+      !(/^\|/) && in_table {
+          delete tbl_colspan   
+          delete col_width_pct 
+          render_table()
+          in_table  = 0
+          tbl_rows  = 0
+          delete tbl_data
+          delete col_w
+          delete col_align
+          if ($0 == "") next
+      }
+
+
+      function strip_markup(text,    tmp) {
+          tmp = text
+          gsub(/\*\*\*[^*`]*\*\*\*/, "", tmp)
+          gsub(/\*\*`[^`]+`\*\*/, "", tmp)
+          gsub(/\*\*[^*`]*\*\*/, "", tmp)
+          gsub(/\*`[^`]+`\*/, "", tmp)
+          gsub(/\*[^*`]*\*/, "", tmp)
+          gsub(/`[^`]+`/, "", tmp)
+          gsub(/~~[^~]+~~/, "", tmp)
+          gsub(/==[^=]+==/,"", tmp)
+          tmp = text
+          gsub(/\*\*\*/, "", tmp)
+          gsub(/\*\*/, "", tmp)
+          gsub(/\*/, "", tmp)
+          gsub(/\x60/, "", tmp)
+          gsub(/~~/, "", tmp)
+          gsub(/==/, "", tmp)
+          return tmp
+      }
+
+
+      function wrap_segment(str, width, arr,    s, gap, word, chunk, chunk_len, space_left, needed, part, remaining, n, line, len) {
+          n = 0
+          line = ""
+          len = 0
+          s = str
+          while (length(s) > 0) {
+              if (match(s, /[^ \t]+/)) {
+                  gap = substr(s, 1, RSTART - 1)
+                  word = substr(s, RSTART, RLENGTH)
+                  chunk = gap word
+                  s = substr(s, RSTART + RLENGTH)
+              } else {
+                  chunk = s
+                  word = s
+                  s = ""
+              }
+              chunk_len = visible_len(chunk)
+              space_left = width - len
+              if (chunk_len <= space_left) {
+                  line = line chunk
+                  len += chunk_len
+              } else {
+                  if (visible_len(word) > width) {
+                      needed = width - len
+                      if (needed > 0) {
+                          part = substr(chunk, 1, needed)
+                          arr[n++] = line part
+                          remaining = substr(chunk, needed + 1)
+                      } else {
+                          if (len > 0) arr[n++] = line
+                          remaining = chunk
+                      }
+                      while (visible_len(remaining) > width) {
+                          arr[n++] = substr(remaining, 1, width)
+                          remaining = substr(remaining, width + 1)
+                      }
+                      line = remaining
+                      len = visible_len(remaining)
+                  } else {
+                      if (len > 0) arr[n++] = line
+                      if (gap != "" && len > 0) {
+                          line = word
+                          len = visible_len(word)
+                      } else {
+                          line = chunk
+                          len = chunk_len
+                      }
+                  }
+              }
+          }
+          if (len > 0 || n == 0) arr[n++] = line
+          return n
+      }
+
+      function wrap_cell(str, width, arr, colidx,    forced, nf, fi, seg, n, sub_n, sub_arr, k) {
+          n = 0
+          nf = split(str, forced, "\n")
+          for (fi = 1; fi <= nf; fi++) {
+              seg = forced[fi]
+              delete sub_arr
+              sub_n = wrap_segment(seg, width, sub_arr)
+              for (k = 0; k < sub_n; k++) arr[colidx, n++] = sub_arr[k]
+          }
+          if (n == 0) arr[colidx, n++] = ""
+          return n
+      }
+
+      function flush_quote_table(    k, j) {
+          delete tbl_data
+          delete col_align
+          delete col_w
+          delete tbl_colspan   
+          delete col_width_pct 
+          for (k = 0; k < qtbl_rows; k++) tbl_data[k] = q_tbl_data[k]
+          tbl_rows = qtbl_rows
+          for (j in q_col_align) col_align[j] = q_col_align[j]
+
+          render_table(quote_tbl_prefix)
+
+          delete tbl_data
+          delete col_align
+          delete col_w
+          tbl_rows = 0
+
+          delete q_tbl_data
+          delete q_col_align
+          qtbl_rows = 0
+          in_quote_table = 0 
+          quote_tbl_depth = 0
+      }
+
+      function render_table(line_prefix, block_align,    i, j, ncols, raw, rendered, pad_l, pad_r, pad_len_l, pad_len_r, w, sep, top, mid, bot, n, k, align, c_pfx,
+                             term_cols, overhead, budget, total_natural, min_w, given, extra, widest_j, widest_w,
+                             row_height, li, frag, frag_len, prefix_w, box_vw, avail, extra_pad, pad_str,
+                             col_ptr, span, cell_w_memo, cell_colptr_memo, usable, have, total_cells,
+                             cell_span_of, cell_colptr_of) {
+          bord = "\033[94m"
+          hdr  = "\033[1;93m"
+          txt  = ""
+
+          prefix_w = visible_len(line_prefix)   # ← ancho visible del prefijo (la barra de quote)
+
+          ncols = 0
+          delete col_w
+          delete cell_w_memo
+          delete cell_colptr_memo
+
+          for (i = 0; i < tbl_rows; i++) {
+              n = split(tbl_data[i], tbl_cols, "|")
+              col_ptr = 1
+              for (j = 1; j <= n; j++) {
+                  span = tbl_colspan[i, j] + 0
+                  if (span < 1) span = 1
+
+                  gsub(/^ *| *$/, "", tbl_cols[j])
+                  tbl_cols[j] = convert_br(tbl_cols[j])
+                  tbl_cols[j] = render_img_inline(tbl_cols[j])
+                  rendered = (i == 0) ? format_inline(tbl_cols[j], hdr) : format_inline(tbl_cols[j], txt)
+                  w = visible_len_ml(rendered)
+
+                  cell_w_memo[i, j]      = w
+                  cell_colptr_memo[i, j] = col_ptr
+
+                  if (span == 1) {
+                      if (!(col_ptr in col_w) || w > col_w[col_ptr]) col_w[col_ptr] = w
+                  }
+
+                  if (col_ptr + span - 1 > ncols) ncols = col_ptr + span - 1
+                  col_ptr += span
+              }
+          }
+
+          for (j = 1; j <= ncols; j++) if (!(j in col_w)) col_w[j] = 0
+
+          for (i = 0; i < tbl_rows; i++) {
+              n = split(tbl_data[i], tbl_cols, "|")
+              for (j = 1; j <= n; j++) {
+                  span = tbl_colspan[i, j] + 0
+                  if (span <= 1) continue
+                  col_ptr = cell_colptr_memo[i, j]
+                  w       = cell_w_memo[i, j]
+                  have = 0
+                  for (k = col_ptr; k < col_ptr + span; k++) have += col_w[k]
+                  have += 3 * (span - 1)   # separadores internos que se omiten, absorbidos como relleno
+                  if (w > have) col_w[col_ptr + span - 1] += (w - have)
+              }
+          }
+
+          term_cols = 0
+          "stty size < /dev/tty 2>/dev/null" | getline _stty_out4
+          close("stty size < /dev/tty 2>/dev/null")
+          split(_stty_out4, _stty_parts4, " ")
+          term_cols = _stty_parts4[2] + 0
+          if (term_cols <= 0) term_cols = 80
+
+          overhead = 1 + 3 * ncols          
+          budget   = term_cols - prefix_w - overhead  
+          min_w    = 3
+
+          if (budget < ncols * min_w) budget = ncols * min_w 
+
+          for (j = 1; j <= ncols; j++) {
+              if (j in col_width_pct) {
+                  given = int(col_width_pct[j] / 100 * budget)
+                  if (given < min_w) given = min_w
+                  col_w[j] = given
+              }
+          }
+
+          total_natural = 0
+          for (j = 1; j <= ncols; j++) total_natural += col_w[j]
+
+          if (total_natural > budget) {
+              extra = 0
+              for (j = 1; j <= ncols; j++) {
+                  given = int(col_w[j] * budget / total_natural)
+                  if (given < min_w) given = min_w
+                  extra += given
+                  col_w[j] = given
+              }
+              while (extra != budget) {
+                  widest_j = 1; widest_w = col_w[1]
+                  for (j = 2; j <= ncols; j++) if (col_w[j] > widest_w) { widest_w = col_w[j]; widest_j = j }
+                  if (extra > budget) {
+                      if (col_w[widest_j] <= min_w) break
+                      col_w[widest_j]--; extra--
+                  } else {
+                      col_w[widest_j]++; extra++
+                  }
+              }
+          }
+
+          top = bord "┌"; mid = bord "├"; bot = bord "└"
+          for (j = 1; j <= ncols; j++) {
+              sep = ""
+              for (k = 1; k <= col_w[j] + 2; k++) sep = sep "─"
+              top = top sep; mid = mid sep; bot = bot sep
+              if (j < ncols) { top = top "┬"; mid = mid "┼"; bot = bot "┴" }
+          }
+          top = top "┐" reset; mid = mid "┤" reset; bot = bot "┘" reset
+
+          if (block_align == "center" || block_align == "right") {
+              box_vw = visible_len(top)
+              avail  = term_cols - prefix_w
+              if (block_align == "center") extra_pad = int((avail - box_vw) / 2)
+              else                         extra_pad = avail - box_vw
+              if (extra_pad < 0) extra_pad = 0
+              pad_str = sprintf("%*s", extra_pad, "")
+              line_prefix = pad_str line_prefix
+          }
+
+          print line_prefix top
+
+          for (i = 0; i < tbl_rows; i++) {
+              n = split(tbl_data[i], tbl_cols, "|")
+              delete cell_wrapped
+              delete cell_wrapped_n
+              delete cell_span_of
+              delete cell_colptr_of
+              row_height = 1
+
+              col_ptr = 1
+              for (j = 1; j <= n; j++) {
+                  span = tbl_colspan[i, j] + 0
+                  if (span < 1) span = 1
+                  cell_span_of[j]   = span
+                  cell_colptr_of[j] = col_ptr
+
+                  usable = 0
+                  for (k = col_ptr; k < col_ptr + span; k++) usable += col_w[k]
+                  usable += 3 * (span - 1)
+
+                  gsub(/^ *| *$/, "", tbl_cols[j])
+                  raw = tbl_cols[j]
+                  raw = convert_br(raw)
+                  raw = render_img_inline(raw)
+                  c_pfx = (i == 0) ? hdr : txt
+                  rendered = format_inline(raw, c_pfx)
+
+                  if (visible_len_ml(rendered) <= usable) {
+                      cell_wrapped_n[j] = split(rendered, cell_wrapped_tmp, "\n")
+                      for (k = 0; k < cell_wrapped_n[j]; k++) cell_wrapped[j, k] = cell_wrapped_tmp[k+1]
+                  } else {
+                      cell_wrapped_n[j] = wrap_cell(rendered, usable, cell_wrapped, j)
+                  }
+                  if (cell_wrapped_n[j] > row_height) row_height = cell_wrapped_n[j]
+
+                  col_ptr += span
+              }
+
+              total_cells = n
+              for (j = col_ptr; j <= ncols; j++) {
+                  total_cells++
+                  cell_span_of[total_cells]   = 1
+                  cell_colptr_of[total_cells] = j
+                  cell_wrapped_n[total_cells] = 1
+                  cell_wrapped[total_cells, 0] = ""
+              }
+
+              for (li = 0; li < row_height; li++) {
+                  printf "%s", line_prefix
+                  printf bord "│" reset
+                  for (j = 1; j <= total_cells; j++) {
+                      span    = cell_span_of[j]
+                      col_ptr = cell_colptr_of[j]
+                      usable = 0
+                      for (k = col_ptr; k < col_ptr + span; k++) usable += col_w[k]
+                      usable += 3 * (span - 1)
+
+                      if (li < cell_wrapped_n[j]) frag = cell_wrapped[j, li]; else frag = ""
+                      frag_len = visible_len(frag)
+                      w = usable - frag_len
+                      if (w < 0) w = 0
+                      align = col_align[col_ptr]   # alineación de la columna de INICIO del span
+                      pad_l = ""; pad_r = ""
+                      if (align == "center") {
+                          pad_len_l = int(w / 2); pad_len_r = w - pad_len_l
+                          for (k = 1; k <= pad_len_l; k++) pad_l = pad_l " "
+                          for (k = 1; k <= pad_len_r; k++) pad_r = pad_r " "
+                      } else if (align == "right") {
+                          for (k = 1; k <= w; k++) pad_l = pad_l " "
+                      } else {
+                          for (k = 1; k <= w; k++) pad_r = pad_r " "
+                      }
+                      c_pfx = (i == 0) ? hdr : txt
+                      printf " %s%s%s%s%s %s│%s", pad_l, c_pfx, frag, reset, pad_r, bord, reset
+                  }
+                  printf "\n"
+              }
+              if (i == 0) print line_prefix mid
+          }
+          print line_prefix bot
+      }
+
+      # ── Definiciones de links [ref]: url ─────────────────────────────
+      /^\[[^\]]+\]:[[:space:]]/ && !in_code {
+        if (match($0, /^\[([^\]]+)\]:[[:space:]]+<?([^[:space:]>"]+)>?/, arr)) {
+          link_refs[tolower(arr[1])] = arr[2]
+        }
+      next
+      }
+
+      {
+          delete color_stack
+          delete callout_open
+          color_stack[1]  = gray
+          callout_open[1] = 0
+          print format_inline($0, "") reset
+      }
+      END {
+          if (in_table) { delete tbl_colspan; delete col_width_pct; render_table("") }
+          if (in_quote_table) flush_quote_table()
+          if (in_style_block) print format_inline(style_block_buf, "") reset
+          if (in_anchor_block) {
+              print anchor_href
+              if (anchor_buf != "") print anchor_buf
+          }
+          if (in_html_center) {
+              print html_center_open
+              if (html_center_buf != "") print html_center_buf
+          }
+          if (in_html_h) {
+              if (html_h_buf != "") print html_h_buf
+          }
+      }
+AWKEOF
+
+      local _tmp_input
+      _tmp_input=$(mktemp /tmp/_mdcat_input_XXXXXX)
+      trap 'rm -f "$_mdcat_awkfile" "$_mdcat_strip" "$_tmp_input"' EXIT
+      printf '%s\n' "$1" > "$_tmp_input"
+      
+      for _mdcat_loc in C.utf8 C.UTF-8 en_US.UTF-8 en_US.utf8; do
+          if locale -a 2>/dev/null | grep -qi "^${_mdcat_loc}$"; then
+              export LC_ALL="$_mdcat_loc"
+              break
+          fi
+      done
+
+      # se hace `cat` de un archivo ya armado (que sí se veía bien).
+      gawk -v SELF_AWK="$_mdcat_awkfile" \
+           -v ICONS_DIR="$_mdcat_dir/../icons" \
+           -f "$_mdcat_awkfile" \
+           "$_tmp_input"         
+    }
+
+    case "$type" in
+        emoji)    _format_emoji    "$text" ;;
+        markdown) _format_markdown "$text" ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then 
+  cmd_format "${@}"
+fi 

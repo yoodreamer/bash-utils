@@ -1,36 +1,274 @@
 #!/usr/bin/env bash
 
 function cmd_input() {
-    
     local ESC=$'\e'
     local CR=$'\r'
+    local NL=$'\r\n'
 
-    function make_ansi() {
-        local fg=$1; local bg=$2; local seq=""
-        [[ -n "$fg" ]] && seq+="${ESC}[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="${ESC}[48;5;${bg}m"
-        echo "$seq"
+    local stty_orig
+    if [[ -n "${__BU_STTY_ORIG:-}" ]]; then
+        stty_orig="$__BU_STTY_ORIG"
+    else
+        stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    fi
+    stty -echo -icanon -isig < /dev/tty 2>/dev/null
+
+    local _interrupted=0
+
+    local _old_sigint_trap _old_sigwinch_trap _old_exit_trap
+    _old_sigint_trap="$(trap -p SIGINT)"
+    _old_sigwinch_trap="$(trap -p SIGWINCH)"
+    _old_exit_trap="$(trap -p EXIT)"
+
+    function _input_exit_safety() {
+        if [[ -n "${stty_orig:-}" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null || stty sane < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        tput cnorm >&2 2>/dev/null
+    }
+    trap '_input_exit_safety' EXIT
+
+    trap '_interrupted=1' SIGINT TERM
+    trap 'needs_redraw=true' SIGWINCH
+
+    while read -rsn1 -t 0.005 _stray < /dev/tty 2>/dev/null; do :; done
+
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        if [[ -n "${stty_orig:-}" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null || stty sane < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        tput cnorm >&2 2>/dev/null
+        if [[ -n "$_old_exit_trap" ]]; then eval "$_old_exit_trap"; else trap - EXIT; fi
+        exit 1
     }
 
-    local width=40
+    _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS
+        _CSS_COLORS["aliceblue"]="f0f8ff"        _CSS_COLORS["antiquewhite"]="faebd7"
+        _CSS_COLORS["aqua"]="00ffff"             _CSS_COLORS["aquamarine"]="7fffd4"
+        _CSS_COLORS["azure"]="f0ffff"            _CSS_COLORS["beige"]="f5f5dc"
+        _CSS_COLORS["bisque"]="ffe4c4"           _CSS_COLORS["black"]="000000"
+        _CSS_COLORS["blanchedalmond"]="ffebcd"   _CSS_COLORS["blue"]="0000ff"
+        _CSS_COLORS["blueviolet"]="8a2be2"       _CSS_COLORS["brown"]="a52a2a"
+        _CSS_COLORS["burlywood"]="deb887"        _CSS_COLORS["cadetblue"]="5f9ea0"
+        _CSS_COLORS["chartreuse"]="7fff00"       _CSS_COLORS["chocolate"]="d2691e"
+        _CSS_COLORS["coral"]="ff7f50"            _CSS_COLORS["cornflowerblue"]="6495ed"
+        _CSS_COLORS["cornsilk"]="fff8dc"         _CSS_COLORS["crimson"]="dc143c"
+        _CSS_COLORS["cyan"]="00ffff"             _CSS_COLORS["darkblue"]="00008b"
+        _CSS_COLORS["darkcyan"]="008b8b"         _CSS_COLORS["darkgoldenrod"]="b8860b"
+        _CSS_COLORS["darkgray"]="a9a9a9"         _CSS_COLORS["darkgreen"]="006400"
+        _CSS_COLORS["darkgrey"]="a9a9a9"         _CSS_COLORS["darkkhaki"]="bdb76b"
+        _CSS_COLORS["darkmagenta"]="8b008b"      _CSS_COLORS["darkolivegreen"]="556b2f"
+        _CSS_COLORS["darkorange"]="ff8c00"       _CSS_COLORS["darkorchid"]="9932cc"
+        _CSS_COLORS["darkred"]="8b0000"          _CSS_COLORS["darksalmon"]="e9967a"
+        _CSS_COLORS["darkseagreen"]="8fbc8f"     _CSS_COLORS["darkslateblue"]="483d8b"
+        _CSS_COLORS["darkslategray"]="2f4f4f"    _CSS_COLORS["darkslategrey"]="2f4f4f"
+        _CSS_COLORS["darkturquoise"]="00ced1"    _CSS_COLORS["darkviolet"]="9400d3"
+        _CSS_COLORS["deeppink"]="ff1493"         _CSS_COLORS["deepskyblue"]="00bfff"
+        _CSS_COLORS["dimgray"]="696969"          _CSS_COLORS["dimgrey"]="696969"
+        _CSS_COLORS["dodgerblue"]="1e90ff"       _CSS_COLORS["firebrick"]="b22222"
+        _CSS_COLORS["floralwhite"]="fffaf0"      _CSS_COLORS["forestgreen"]="228b22"
+        _CSS_COLORS["fuchsia"]="ff00ff"          _CSS_COLORS["gainsboro"]="dcdcdc"
+        _CSS_COLORS["ghostwhite"]="f8f8ff"       _CSS_COLORS["gold"]="ffd700"
+        _CSS_COLORS["goldenrod"]="daa520"        _CSS_COLORS["gray"]="808080"
+        _CSS_COLORS["green"]="008000"            _CSS_COLORS["greenyellow"]="adff2f"
+        _CSS_COLORS["grey"]="808080"             _CSS_COLORS["honeydew"]="f0fff0"
+        _CSS_COLORS["hotpink"]="ff69b4"          _CSS_COLORS["indianred"]="cd5c5c"
+        _CSS_COLORS["indigo"]="4b0082"           _CSS_COLORS["ivory"]="fffff0"
+        _CSS_COLORS["khaki"]="f0e68c"            _CSS_COLORS["lavender"]="e6e6fa"
+        _CSS_COLORS["lavenderblush"]="fff0f5"    _CSS_COLORS["lawngreen"]="7cfc00"
+        _CSS_COLORS["lemonchiffon"]="fffacd"     _CSS_COLORS["lightblue"]="add8e6"
+        _CSS_COLORS["lightcoral"]="f08080"       _CSS_COLORS["lightcyan"]="e0ffff"
+        _CSS_COLORS["lightgoldenrodyellow"]="fafad2" _CSS_COLORS["lightgray"]="d3d3d3"
+        _CSS_COLORS["lightgreen"]="90ee90"       _CSS_COLORS["lightgrey"]="d3d3d3"
+        _CSS_COLORS["lightpink"]="ffb6c1"        _CSS_COLORS["lightsalmon"]="ffa07a"
+        _CSS_COLORS["lightseagreen"]="20b2aa"    _CSS_COLORS["lightskyblue"]="87cefa"
+        _CSS_COLORS["lightslategray"]="778899"   _CSS_COLORS["lightslategrey"]="778899"
+        _CSS_COLORS["lightsteelblue"]="b0c4de"   _CSS_COLORS["lightyellow"]="ffffe0"
+        _CSS_COLORS["lime"]="00ff00"             _CSS_COLORS["limegreen"]="32cd32"
+        _CSS_COLORS["linen"]="faf0e6"            _CSS_COLORS["magenta"]="ff00ff"
+        _CSS_COLORS["maroon"]="800000"           _CSS_COLORS["mediumaquamarine"]="66cdaa"
+        _CSS_COLORS["mediumblue"]="0000cd"       _CSS_COLORS["mediumorchid"]="ba55d3"
+        _CSS_COLORS["mediumpurple"]="9370db"     _CSS_COLORS["mediumseagreen"]="3cb371"
+        _CSS_COLORS["mediumslateblue"]="7b68ee"  _CSS_COLORS["mediumspringgreen"]="00fa9a"
+        _CSS_COLORS["mediumturquoise"]="48d1cc"  _CSS_COLORS["mediumvioletred"]="c71585"
+        _CSS_COLORS["midnightblue"]="191970"     _CSS_COLORS["mintcream"]="f5fffa"
+        _CSS_COLORS["mistyrose"]="ffe4e1"        _CSS_COLORS["moccasin"]="ffe4b5"
+        _CSS_COLORS["navajowhite"]="ffdead"      _CSS_COLORS["navy"]="000080"
+        _CSS_COLORS["oldlace"]="fdf5e6"          _CSS_COLORS["olive"]="808000"
+        _CSS_COLORS["olivedrab"]="6b8e23"        _CSS_COLORS["orange"]="ffa500"
+        _CSS_COLORS["orangered"]="ff4500"        _CSS_COLORS["orchid"]="da70d6"
+        _CSS_COLORS["palegoldenrod"]="eee8aa"    _CSS_COLORS["palegreen"]="98fb98"
+        _CSS_COLORS["paleturquoise"]="afeeee"    _CSS_COLORS["palevioletred"]="db7093"
+        _CSS_COLORS["papayawhip"]="ffefd5"       _CSS_COLORS["peachpuff"]="ffdab9"
+        _CSS_COLORS["peru"]="cd853f"             _CSS_COLORS["pink"]="ffc0cb"
+        _CSS_COLORS["plum"]="dda0dd"             _CSS_COLORS["powderblue"]="b0e0e6"
+        _CSS_COLORS["purple"]="800080"           _CSS_COLORS["rebeccapurple"]="663399"
+        _CSS_COLORS["red"]="ff0000"              _CSS_COLORS["rosybrown"]="bc8f8f"
+        _CSS_COLORS["royalblue"]="4169e1"        _CSS_COLORS["saddlebrown"]="8b4513"
+        _CSS_COLORS["salmon"]="fa8072"           _CSS_COLORS["sandybrown"]="f4a460"
+        _CSS_COLORS["seagreen"]="2e8b57"         _CSS_COLORS["seashell"]="fff5ee"
+        _CSS_COLORS["sienna"]="a0522d"           _CSS_COLORS["silver"]="c0c0c0"
+        _CSS_COLORS["skyblue"]="87ceeb"          _CSS_COLORS["slateblue"]="6a5acd"
+        _CSS_COLORS["slategray"]="708090"        _CSS_COLORS["slategrey"]="708090"
+        _CSS_COLORS["snow"]="fffafa"             _CSS_COLORS["springgreen"]="00ff7f"
+        _CSS_COLORS["steelblue"]="4682b4"        _CSS_COLORS["tan"]="d2b48c"
+        _CSS_COLORS["teal"]="008080"             _CSS_COLORS["thistle"]="d8bfd8"
+        _CSS_COLORS["tomato"]="ff6347"           _CSS_COLORS["turquoise"]="40e0d0"
+        _CSS_COLORS["violet"]="ee82ee"           _CSS_COLORS["wheat"]="f5deb3"
+        _CSS_COLORS["white"]="ffffff"            _CSS_COLORS["whitesmoke"]="f5f5f5"
+        _CSS_COLORS["yellow"]="ffff00"           _CSS_COLORS["yellowgreen"]="9acd32"
+        _CSS_COLORS_INIT=1
+    }
+
+    function _color_params() {
+        local val="${1,,}" layer="$2" hex=""
+        [[ -z "$val" || "$val" == "none" || "$val" == "clear" ]] && return
+
+        local named_idx=-1
+        case "$val" in
+            black)                      named_idx=0  ;;
+            red)                        named_idx=1  ;;
+            green)                      named_idx=2  ;;
+            yellow)                     named_idx=3  ;;
+            blue)                       named_idx=4  ;;
+            magenta|purple)             named_idx=5  ;;
+            cyan)                       named_idx=6  ;;
+            white)                      named_idx=7  ;;
+            brightblack|gray|grey)      named_idx=8  ;;
+            brightred)                  named_idx=9  ;;
+            brightgreen)                named_idx=10 ;;
+            brightyellow)               named_idx=11 ;;
+            brightblue)                 named_idx=12 ;;
+            brightmagenta|brightpurple) named_idx=13 ;;
+            brightcyan)                 named_idx=14 ;;
+            brightwhite)                named_idx=15 ;;
+        esac
+        if (( named_idx >= 0 )); then
+            printf '%d;5;%d' "$layer" "$named_idx"
+            return
+        fi
+
+        if hex="$(_normalize_hex "$val")"; then
+            local r=$(( 16#${hex:0:2} ))
+            local g=$(( 16#${hex:2:2} ))
+            local b=$(( 16#${hex:4:2} ))
+            printf '%d;2;%d;%d;%d' "$layer" "$r" "$g" "$b"
+        elif [[ "$val" =~ ^[0-9]+$ ]]; then
+            printf '%d;5;%d' "$layer" "$((10#$val))"
+        fi
+    }
+
+    function _normalize_hex() {
+        local val="${1,,}" core=""
+        if [[ "$val" == \#* ]]; then
+            core="${val#\#}"
+        elif [[ "$val" =~ ^[a-f0-9]{6}$ ]] || { [[ "$val" =~ ^[a-f0-9]{3}$ ]] && [[ "$val" =~ [a-f] ]]; }; then
+            core="$val"
+        else
+            _css_init
+            core="${_CSS_COLORS[$val]:-}"
+            [[ -z "$core" ]] && return 1
+        fi
+        case "${#core}" in
+            3) core="${core:0:1}${core:0:1}${core:1:1}${core:1:1}${core:2:1}${core:2:1}" ;;
+            6) : ;;
+            *) return 1 ;;
+        esac
+        [[ "$core" =~ ^[a-f0-9]{6}$ ]] || return 1
+        printf '%s' "$core"
+        return 0
+    }
+
+    function _list_color_names() {
+        _css_init
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey|\
+            brightblack|brightred|brightgreen|brightyellow|brightblue|\
+            brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _normalize_hex "$val" >/dev/null && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( 10#$val >= 0 && 10#$val <= 255 )) && return 0
+        return 1
+    }
+
+    function make_ansi() {
+        local fg="$1" bg="$2" reverse="${3:-false}"
+        local fg_p bg_p params=()
+        fg_p="$(_color_params "$fg" 38)"
+        bg_p="$(_color_params "$bg" 48)"
+        [[ "$reverse" == "true" ]] && params+=("7")
+        [[ -n "$fg_p" ]] && params+=("$fg_p")
+        [[ -n "$bg_p" ]] && params+=("$bg_p")
+        (( ${#params[@]} == 0 )) && return
+        local IFS=';'
+        printf "${ESC}[%sm" "${params[*]}"
+    }
+
+    local width=0
     local prompt_char="> "
     local placeholder="Type something..."
     local header=""
     local value=""
     local char_limit=0
     local is_password=false
-    
-    local c_cursor_fg="255"
-    local c_cursor_bg="212"
+    local accept_mode="all"
+
+    local timeout=0
+    local cursor_mode="blink"
+
+    local c_cursor_fg="212"
+    local c_cursor_bg=""
     local c_prompt_fg="240"
     local c_text_fg=""
+    local c_text_bg=""
     local c_placeholder_fg="240"
     local c_header_fg="212"
+    local c_header_bg=""
 
-    local cursor_pos=0
+    local pass_preffix="•"
+    local pass_toggle_mode="off"
+    local c_pass_preffix_fg=""
+    local c_pass_preffix_bg=""
+
+    local h_padding="0 0 0 0"
+    local p_padding="0 0 0 0"
+
+    local footer_text=""
+    local c_footer_fg=""
+    local c_footer_bg=""
+    local f_padding="0 0 0 0"
+
     local scroll_offset=0
-    local cursor_visible=1
-    
+
+    function _restore_tty_only() {
+        if [[ -n "${stty_orig:-}" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null || stty sane < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        tput cnorm >&2 2>/dev/null
+    }
+
     function show_help_panel() {
         cat <<EOF
 Usage: bash-utils input [flags]
@@ -39,114 +277,326 @@ Prompt for input on a single line.
 
 Flags:
   -h, --help                Show help
-      --prompt="> "         Prompt string
-      --placeholder="..."   Placeholder text
-      --value=""            Initial value
-      --width=40            Visible width of the input area
-      --password            Mask input characters
-      --char-limit=0        Maximum character limit
-      --header=""           Header text
+      --prompt="> "         Prompt string (default: "> ")
+      --placeholder="..."   Placeholder text (default: "Type something...")
+      --value=""            Initial value (default: empty)
+      --width=0             Visible width of the input area. 0 = auto-fill
+                             all the way to the edge of the terminal (like a
+                             real shell buffer), and re-adjusts on resize.
+                             Pass a positive integer to fix an exact width.
+      --password            Mask input characters (default: false)
+      --char-limit=0        Maximum character limit (default: 0, no limit)
+      --header=""           Header text (default: empty)
+      --timeout=0           Timeout until input aborts, e.g. 5s (default: 0)
+      --cursor.mode="blink" Cursor mode: blink, hide, static (default: "blink")
+      --accept=all          Character filter: letters, digits, all (default: all)
 
-Style Flags:
-  --prompt.foreground       Prompt color
-  --text.foreground         Text color
-  --cursor.foreground       Cursor text color
-  --cursor.background       Cursor background color
+Password Mask Flags:
+      --password.preffix="•"            Password mask character (default: "•")
+      --password.preffix.foreground     Password mask color
+      --password.preffix.background     Password mask bg color
+      --password.toggle-mode="off"      Enable Ctrl+T to toggle visibility (on/off)
+
+Style & Padding Flags:
+  --prompt.foreground       Prompt color (default: 240)
+  --prompt.padding="0 0 0 0" Prompt padding CSS (default: 0 0 0 0)
+  --text.foreground         Text color (default: empty)
+  --text.background         Text background color (default: empty)
+  --cursor.foreground       Cursor text color (default: 212)
+  --cursor.background       Cursor background color 
+  --header.foreground       Header text color (default: 212)
+  --header.background       Header background color (default: empty)
+  --header.padding="0 0 0 0" Header padding CSS (default: 0 0 0 0)
+
+Footer Flags:
+      --footer=""                Custom footer text (default: dynamic help)
+      --footer.foreground=""       Footer text color (default: dimmed)
+      --footer.background=""       Footer background color (default: empty)
+      --footer.padding="0 0 0 0"   Padding CSS (default: 0 0 0 0)
 EOF
     }
 
-    local args_options=()
-    local parse_args=()
-    
-    while [[ $# -gt 0 ]]; do
-        if [[ "$1" == -* ]]; then
-            parse_args+=("$1")
-            if [[ "$1" != *=* && "$1" != --no-* && "$1" != --password ]]; then
-                 if [[ -n "$2" && "$2" != -* ]]; then parse_args+=("$2"); shift; fi
-            fi
-        else
-            args_options+=("$1")
-        fi
-        shift
-    done
-    
-    set -- "${parse_args[@]}"
+    local -A _known_flags=(
+        [--width]=1 [--char-limit]=1 [--timeout]=1 [--cursor.mode]=1
+        [--password.toggle-mode]=1
+        [--prompt.padding]=1 [--header.padding]=1 [--footer.padding]=1
+        [--prompt]=1 [--placeholder]=1 [--value]=1 [--header]=1 [--footer]=1
+        [--password.preffix]=1
+        [--prompt.foreground]=1 [--text.foreground]=1 [--text.background]=1
+        [--cursor.foreground]=1 [--cursor.background]=1
+        [--header.foreground]=1 [--header.background]=1
+        [--footer.foreground]=1 [--footer.background]=1
+        [--password.preffix.foreground]=1 [--password.preffix.background]=1
+        [--accept]=1
+    )
 
     while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help) show_help_panel; return 0 ;;
-            --width=*)      width="${1#*=}"; shift ;;
-            --width)        width="$2"; shift 2 ;;
-            --prompt=*)     prompt_char="${1#*=}"; shift ;;
-            --prompt)       prompt_char="$2"; shift 2 ;;
-            --placeholder=*) placeholder="${1#*=}"; shift ;;
-            --placeholder)   placeholder="$2"; shift 2 ;;
-            --value=*)      value="${1#*=}"; shift ;;
-            --value)        value="$2"; shift 2 ;;
-            --header=*)     header="${1#*=}"; shift ;;
-            --header)       header="$2"; shift 2 ;;
-            --char-limit=*) char_limit="${1#*=}"; shift ;;
-            --char-limit)   char_limit="$2"; shift 2 ;;
-            --password)     is_password=true; shift ;;
-            
-            --prompt.foreground=*)   c_prompt_fg="${1#*=}"; shift ;;
-            --prompt.foreground)     c_prompt_fg="$2"; shift 2 ;;
-            --text.foreground=*)     c_text_fg="${1#*=}"; shift ;;
-            --text.foreground)       c_text_fg="$2"; shift 2 ;;
-            --cursor.foreground=*)   c_cursor_fg="${1#*=}"; shift ;;
-            --cursor.foreground)     c_cursor_fg="$2"; shift 2 ;;
-            --cursor.background=*)   c_cursor_bg="${1#*=}"; shift ;;
-            --cursor.background)     c_cursor_bg="$2"; shift 2 ;;
-            *) shift ;;
+        local key="$1"
+        local val=""
+
+        if [[ "$key" == "-h" || "$key" == "--help" ]]; then
+            show_help_panel
+            _restore_tty_only
+            if [[ -n "$_old_exit_trap" ]]; then eval "$_old_exit_trap"; else trap - EXIT; fi
+            return 0
+        elif [[ "$key" == "--password" ]]; then
+            is_password=true
+            shift; continue
+        fi
+
+        local base_key="$key"
+        [[ "$key" == *=* ]] && base_key="${key%%=*}"
+
+        if [[ -z "${_known_flags[$base_key]:-}" ]]; then
+            printf 'error: unknown flag %s\n' "${base_key}" >&2
+            _restore_tty_only
+            if [[ -n "$_old_exit_trap" ]]; then eval "$_old_exit_trap"; else trap - EXIT; fi
+            return 1
+        fi
+
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            shift
+        else
+            shift
+            if [[ $# -lt 1 || "$1" == --* ]]; then
+                die "Falta argumento para '${key}'."
+            fi
+            val="$1"
+            shift
+        fi
+
+        case "$key" in
+            --width)
+                [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '--width' inválido. Recibido: '${val}'."
+                width="$val"
+                ;;
+            --char-limit)
+                [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '--char-limit' inválido. Recibido: '${val}'."
+                char_limit="$val"
+                ;;
+            --timeout)
+                val="${val%s}"
+                [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '--timeout' inválido. Recibido: '${val}'."
+                timeout="$val"
+                ;;
+            --cursor.mode)
+                case "${val,,}" in
+                    blink|hide|static) cursor_mode="${val,,}" ;;
+                    *) die "Valor para '--cursor.mode' inválido. Recibido: '${val}'." ;;
+                esac
+                ;;
+            --accept)
+                case "${val,,}" in
+                    letters|digits|all) accept_mode="${val,,}" ;;
+                    *) die "Valor para '--accept' inválido. Usa: letters, digits, all." ;;
+                esac
+                ;;
+            --password.toggle-mode)
+                case "${val,,}" in
+                    on|off) pass_toggle_mode="${val,,}" ;;
+                    *) die "Valor para '--password.toggle-mode' inválido." ;;
+                esac
+                ;;
+            --prompt.padding|--header.padding|--footer.padding)
+                [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+){0,3}$ ]] && die "Padding inválido en '${key}'."
+                case "$key" in
+                    --prompt.padding) p_padding="$val" ;;
+                    --header.padding) h_padding="$val" ;;
+                    --footer.padding) f_padding="$val" ;;
+                esac
+                ;;
+            --prompt|--placeholder|--value|--header|--footer|--password.preffix)
+                case "$key" in
+                    --prompt) prompt_char="$val" ;;
+                    --placeholder) placeholder="$val" ;;
+                    --value) value="$val" ;;
+                    --header) header="$val" ;;
+                    --footer) footer_text="$val" ;;
+                    --password.preffix) pass_preffix="$val" ;;
+                esac
+                ;;
+            --prompt.foreground|--text.foreground|--text.background|--cursor.foreground|--cursor.background|--header.foreground|--header.background|--footer.foreground|--footer.background|--password.preffix.foreground|--password.preffix.background)
+                if ! is_valid_color "$val"; then
+                    die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                fi
+                case "$key" in
+                    --prompt.foreground) c_prompt_fg="$val" ;;
+                    --text.foreground) c_text_fg="$val" ;;
+                    --text.background) c_text_bg="$val" ;;
+                    --cursor.foreground) c_cursor_fg="$val" ;;
+                    --cursor.background) c_cursor_bg="$val" ;;
+                    --header.foreground) c_header_fg="$val" ;;
+                    --header.background) c_header_bg="$val" ;;
+                    --footer.foreground) c_footer_fg="$val" ;;
+                    --footer.background) c_footer_bg="$val" ;;
+                    --password.preffix.foreground) c_pass_preffix_fg="$val" ;;
+                    --password.preffix.background) c_pass_preffix_bg="$val" ;;
+                esac
+                ;;
+            *)
+                printf 'error: unknown flag %s\n' "${key}" >&2
+                _restore_tty_only
+                if [[ -n "$_old_exit_trap" ]]; then eval "$_old_exit_trap"; else trap - EXIT; fi
+                return 1
+                ;;
         esac
     done
 
-    cursor_pos=${#value}
+    [[ -z "$pass_preffix" ]] && pass_preffix=" "
+
+    local cursor_pos=${#value}
+    local cursor_visible=1
+    [[ "$cursor_mode" == "hide" ]] && cursor_visible=0
+
+    local mask_input=false
+    if [[ "$is_password" == "true" ]]; then
+        mask_input=true
+    fi
+
+    local reset="${ESC}[0m"
+    local dimmed="${ESC}[2m"
 
     local s_prompt="$(make_ansi "$c_prompt_fg" "")"
-    local s_text="$(make_ansi "$c_text_fg" "")"
+    local s_text="$(make_ansi "$c_text_fg" "$c_text_bg")"
     local s_placeholder="$(make_ansi "$c_placeholder_fg" "")"
-    local s_header="$(make_ansi "$c_header_fg" "")"
-    local s_cursor_on="${ESC}[7m" 
-    local s_cursor_off="${ESC}[27m"
-    local reset="${ESC}[0m"
+    local s_header="$(make_ansi "$c_header_fg" "$c_header_bg")"
+    local s_cursor_on="$(make_ansi "$c_cursor_fg" "$c_cursor_bg" true)"
+    local s_cursor_off="${reset}${s_text}"
+    local s_pass_preffix="$(make_ansi "$c_pass_preffix_fg" "$c_pass_preffix_bg")"
+
+    local s_footer=""
+    if [[ -n "$c_footer_fg" || -n "$c_footer_bg" ]]; then
+        s_footer="$(make_ansi "$c_footer_fg" "$c_footer_bg")"
+    else
+        s_footer="${dimmed}"
+    fi
+
+    local h_pad_t=0 h_pad_r=0 h_pad_b=0 h_pad_l=0
+    read -ra _pv <<< "$h_padding"
+    case "${#_pv[@]}" in
+        1) h_pad_t="${_pv[0]}"; h_pad_r="${_pv[0]}"; h_pad_b="${_pv[0]}"; h_pad_l="${_pv[0]}" ;;
+        2) h_pad_t="${_pv[0]}"; h_pad_b="${_pv[0]}"; h_pad_r="${_pv[1]}"; h_pad_l="${_pv[1]}" ;;
+        3) h_pad_t="${_pv[0]}"; h_pad_r="${_pv[1]}"; h_pad_l="${_pv[1]}"; h_pad_b="${_pv[2]}" ;;
+        4) h_pad_t="${_pv[0]}"; h_pad_r="${_pv[1]}"; h_pad_b="${_pv[2]}"; h_pad_l="${_pv[3]}" ;;
+    esac
+
+    local p_pad_t=0 p_pad_r=0 p_pad_b=0 p_pad_l=0
+    read -ra _pv <<< "$p_padding"
+    case "${#_pv[@]}" in
+        1) p_pad_t="${_pv[0]}"; p_pad_r="${_pv[0]}"; p_pad_b="${_pv[0]}"; p_pad_l="${_pv[0]}" ;;
+        2) p_pad_t="${_pv[0]}"; p_pad_b="${_pv[0]}"; p_pad_r="${_pv[1]}"; p_pad_l="${_pv[1]}" ;;
+        3) p_pad_t="${_pv[0]}"; p_pad_r="${_pv[1]}"; p_pad_l="${_pv[1]}"; p_pad_b="${_pv[2]}" ;;
+        4) p_pad_t="${_pv[0]}"; p_pad_r="${_pv[1]}"; p_pad_b="${_pv[2]}"; p_pad_l="${_pv[3]}" ;;
+    esac
+
+    local f_pad_t=0 f_pad_r=0 f_pad_b=0 f_pad_l=0
+    read -ra _pv <<< "$f_padding"
+    case "${#_pv[@]}" in
+        1) f_pad_t="${_pv[0]}"; f_pad_r="${_pv[0]}"; f_pad_b="${_pv[0]}"; f_pad_l="${_pv[0]}" ;;
+        2) f_pad_t="${_pv[0]}"; f_pad_b="${_pv[0]}"; f_pad_r="${_pv[1]}"; f_pad_l="${_pv[1]}" ;;
+        3) f_pad_t="${_pv[0]}"; f_pad_r="${_pv[1]}"; f_pad_l="${_pv[1]}"; f_pad_b="${_pv[2]}" ;;
+        4) f_pad_t="${_pv[0]}"; f_pad_r="${_pv[1]}"; f_pad_b="${_pv[2]}"; f_pad_l="${_pv[3]}" ;;
+    esac
+
+    local h_indent=""; for (( _p=0; _p<h_pad_l; _p++ )); do h_indent+=" "; done
+    local p_indent=""; for (( _p=0; _p<p_pad_l; _p++ )); do p_indent+=" "; done
+    local f_indent=""; for (( _p=0; _p<f_pad_l; _p++ )); do f_indent+=" "; done
+
+    local actual_footer="$footer_text"
+    if [[ -z "$actual_footer" ]]; then
+        if [[ "$is_password" == "true" && "$pass_toggle_mode" == "on" ]]; then
+            actual_footer="enter submit • ctrl+t toggle"
+        else
+            actual_footer="enter submit"
+        fi
+    fi
 
     local header_lines=0
+    local h_lines=()
     if [[ -n "$header" ]]; then
-        header_lines=$(echo -e "$header" | grep -c "^")
+        mapfile -t h_lines <<< "$header"
+        header_lines=${#h_lines[@]}
+    else
+        h_pad_t=0
+        h_pad_b=0
     fi
-    local total_lines=$(( header_lines + 1 )) 
+
+    local total_lines=$(( header_lines + 3 + h_pad_t + h_pad_b + p_pad_t + p_pad_b + f_pad_t + f_pad_b ))
+
+    local alloc_str=""
+    for ((i=0; i<total_lines; i++)); do alloc_str+="${NL}"; done
+    printf '%s' "${alloc_str}${ESC}[${total_lines}A" >&2
+
+    local needs_redraw=true
+
+    function cleanup() {
+        while read -rsn1 -t 0.05 _trash < /dev/tty 2>/dev/null; do :; done
+
+        if [[ -n "${stty_orig:-}" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null || stty sane < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+
+        tput cnorm >&2
+        printf '%s' "${ESC}[?7h${ESC}[?1000l${ESC}[?1002l${ESC}[?1006l" >&2
+
+        if [[ -n "$_old_sigint_trap" ]]; then eval "$_old_sigint_trap"; else trap - SIGINT TERM; fi
+        if [[ -n "$_old_sigwinch_trap" ]]; then eval "$_old_sigwinch_trap"; else trap - SIGWINCH; fi
+        if [[ -n "$_old_exit_trap" ]]; then eval "$_old_exit_trap"; else trap - EXIT; fi
+    }
+
+    function clear_menu() {
+        if (( total_lines > 0 )); then
+            local clear_frame=""
+            for ((k=0; k<total_lines; k++)); do clear_frame+="${ESC}[K${NL}"; done
+            printf '%s' "${clear_frame}${ESC}[${total_lines}A" >&2
+        fi
+    }
 
     tput civis >&2
-    trap 'echo -ne "${ESC}[${total_lines}A${ESC}[J" >&2; tput cnorm >&2; return 130' SIGINT
+    printf '%s' "${ESC}[?7l" >&2
 
     function draw() {
+        local frame="${reset}"
+
+        local effective_width="$width"
+        if [[ "$width" -eq 0 ]]; then
+            local term_cols
+            term_cols=$(tput cols 2>/dev/null || echo 80)
+            effective_width=$(( term_cols - ${#prompt_char} - p_pad_l - p_pad_r - 1 ))
+            (( effective_width < 5 )) && effective_width=5
+        fi
+
         if [[ -n "$header" ]]; then
-            echo -e "${s_header}${header}${reset}${ESC}[K" >&2
+            for (( _p=0; _p<h_pad_t; _p++ )); do frame+="${ESC}[K${NL}"; done
+            for h_line in "${h_lines[@]}"; do
+                frame+="${h_indent}${s_header}${h_line}${reset}${ESC}[K${NL}"
+            done
+            for (( _p=0; _p<h_pad_b; _p++ )); do frame+="${ESC}[K${NL}"; done
         fi
 
-        local content="$value"
-        
-        if [[ "$is_password" == "true" ]]; then
-            local masked=""
-            for ((i=0; i<${#value}; i++)); do masked+="•"; done
-            content="$masked"
-        fi
-
-        if (( cursor_pos >= scroll_offset + width )); then
-            scroll_offset=$(( cursor_pos - width + 1 ))
+        if (( cursor_pos >= scroll_offset + effective_width )); then
+            scroll_offset=$(( cursor_pos - effective_width + 1 ))
         elif (( cursor_pos < scroll_offset )); then
             scroll_offset=$cursor_pos
         fi
 
-        local visible_content="${content:$scroll_offset:$width}"
-        local rel_cursor=$(( cursor_pos - scroll_offset ))
+        local total_len=${#value}
+        local max_scroll=$(( total_len - effective_width ))
+        (( max_scroll < 0 )) && max_scroll=0
+        (( scroll_offset > max_scroll )) && scroll_offset=$max_scroll
+
         local line_render=""
-        
+
         if [[ -z "$value" ]]; then
-            local visible_ph="${placeholder:0:$width}"
+            local visible_ph="${placeholder:0:$effective_width}"
             local p_first="${visible_ph:0:1}"
             local p_rest="${visible_ph:1}"
+
+            [[ -z "$p_first" ]] && p_first=" "
 
             if [[ $cursor_visible -eq 1 ]]; then
                 line_render="${s_cursor_on}${p_first}${s_cursor_off}${s_placeholder}${p_rest}"
@@ -154,100 +604,195 @@ EOF
                 line_render="${s_placeholder}${visible_ph}"
             fi
         else
-            local pre="${visible_content:0:rel_cursor}"
-            local char="${visible_content:rel_cursor:1}"
-            local post="${visible_content:rel_cursor+1}"
+            local total_len=${#value}
+            local visible_len=$(( total_len - scroll_offset ))
+            (( visible_len > effective_width )) && visible_len=$effective_width
+            (( visible_len < 0 )) && visible_len=0
 
-            if (( rel_cursor >= ${#visible_content} )); then
-                char=" " 
-                post=""
-            fi
-            
-            if [[ $cursor_visible -eq 1 ]]; then
-                line_render="${s_text}${pre}${s_cursor_on}${char}${s_cursor_off}${s_text}${post}"
+            local rel_cursor=$(( cursor_pos - scroll_offset ))
+            local pre="" char="" post=""
+
+            if [[ "$mask_input" == "true" ]]; then
+                local i
+                for ((i = 0; i < visible_len; i++)); do
+                    if (( i < rel_cursor )); then
+                        pre+="${pass_preffix}"
+                    elif (( i == rel_cursor )); then
+                        char="${pass_preffix}"
+                    else
+                        post+="${pass_preffix}"
+                    fi
+                done
+                if (( rel_cursor >= visible_len )); then
+                    char=" "
+                    post=""
+                fi
             else
-                line_render="${s_text}${pre}${char}${post}"
+                local visible_content="${value:$scroll_offset:$visible_len}"
+                pre="${visible_content:0:rel_cursor}"
+                char="${visible_content:rel_cursor:1}"
+                post="${visible_content:rel_cursor+1}"
+
+                if (( rel_cursor >= ${#visible_content} )); then
+                    char=" "
+                    post=""
+                fi
+            fi
+
+            if [[ $cursor_visible -eq 1 ]]; then
+                if [[ "$mask_input" == "true" ]]; then
+                    line_render="${s_pass_preffix}${pre}${s_cursor_on}${char}${reset}${s_pass_preffix}${post}"
+                else
+                    line_render="${s_text}${pre}${s_cursor_on}${char}${s_cursor_off}${s_text}${post}"
+                fi
+            else
+                if [[ "$mask_input" == "true" ]]; then
+                    line_render="${s_pass_preffix}${pre}${char}${post}"
+                else
+                    line_render="${s_text}${pre}${char}${post}"
+                fi
             fi
         fi
 
-        echo -e "${s_prompt}${prompt_char}${reset}${line_render}${reset}${ESC}[K" >&2
+        for (( _p=0; _p<p_pad_t; _p++ )); do frame+="${ESC}[K${NL}"; done
+        frame+="${p_indent}${s_prompt}${prompt_char}${reset}${line_render}${reset}${ESC}[K${NL}"
+        for (( _p=0; _p<p_pad_b; _p++ )); do frame+="${ESC}[K${NL}"; done
+        frame+="${ESC}[K${NL}"
+        for (( _p=0; _p<f_pad_t; _p++ )); do frame+="${ESC}[K${NL}"; done
+        frame+="${f_indent}${s_footer}${actual_footer}${reset}${ESC}[K${NL}"
+        for (( _p=0; _p<f_pad_b; _p++ )); do frame+="${ESC}[K${NL}"; done
+        frame+="${ESC}[${total_lines}A"
+        printf '%s' "${frame}" >&2
     }
 
+    function insert_char() {
+        local c="$1"
+        case "$accept_mode" in
+            letters) [[ "$c" =~ [[:alpha:]] ]] || return ;;
+            digits)  [[ "$c" =~ [[:digit:]] ]] || return ;;
+        esac
+        if [[ $char_limit -gt 0 && ${#value} -ge $char_limit ]]; then
+            return
+        fi
+        local left="${value:0:cursor_pos}"
+        local right="${value:cursor_pos}"
+        value="${left}${c}${right}"
+        ((cursor_pos++))
+    }
+
+    local start_time=${EPOCHSECONDS:-$(date +%s)}
+    local blink_counter=0
+
     while true; do
-        draw
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
+        fi
 
-        IFS= read -rsn1 -t 0.5 key < /dev/tty
-        local exit_code=$?
+        local read_opts=("-rsn1" "-t" "0.05")
 
-        if [[ $exit_code -ne 0 ]]; then
-            ((cursor_visible = 1 - cursor_visible))
-            echo -ne "${ESC}[${total_lines}A" >&2
+        if [[ $timeout -gt 0 ]]; then
+            local now=${EPOCHSECONDS:-$(date +%s)}
+            local remain=$(( timeout - (now - start_time) ))
+            if (( remain <= 0 )); then clear_menu; cleanup; printf '\n' >&2; return 124; fi
+        fi
+
+        IFS= read "${read_opts[@]}" key < /dev/tty
+        local _read_status=$?
+
+        if [[ $_interrupted -eq 1 ]]; then
+            clear_menu
+            cleanup
+            printf '\n' >&2
+            return 130
+        fi
+
+        if [[ $_read_status -ne 0 ]]; then
+            if [[ "$cursor_mode" == "blink" ]]; then
+                ((blink_counter++))
+                if (( blink_counter >= 10 )); then
+                    ((cursor_visible = 1 - cursor_visible))
+                    needs_redraw=true
+                    blink_counter=0
+                fi
+            fi
             continue
         fi
 
-        cursor_visible=1
-
-        if [[ $key == $ESC ]]; then
-            read -rsn5 -t 0.01 seq < /dev/tty
-            
-            case "$seq" in
-                "[C") 
-                    ((cursor_pos++))
-                    if ((cursor_pos > ${#value})); then cursor_pos=${#value}; fi
-                    ;;
-                "[D") 
-                    ((cursor_pos--))
-                    if ((cursor_pos < 0)); then cursor_pos=0; fi
-                    ;;
-                "[H"|"[1~"|"[7~"|"OH") 
-                    cursor_pos=0
-                    ;;
-                "[F"|"[4~"|"[8~"|"OF") 
-                    cursor_pos=${#value}
-                    ;;
-                "[3~") 
-                    if (( cursor_pos < ${#value} )); then
-                        local left="${value:0:cursor_pos}"
-                        local right="${value:cursor_pos+1}"
-                        value="${left}${right}"
-                    fi
-                    ;;
-            esac
-
-        elif [[ "$key" == "" ]]; then 
-            echo -ne "${ESC}[${total_lines}A${ESC}[J" >&2
-            tput cnorm >&2
-            echo "$value"
-            return 0
-
-        elif [[ "$key" == $'\x7f' || "$key" == $'\b' ]]; then 
-            if (( cursor_pos > 0 )); then
-                local left="${value:0:cursor_pos-1}"
-                local right="${value:cursor_pos}"
-                value="${left}${right}"
-                ((cursor_pos--))
-            fi
-            
-        elif [[ "$key" == $'\x03' ]]; then 
-             echo -ne "${ESC}[${total_lines}A${ESC}[J" >&2
-             tput cnorm >&2
-             return 130
-
-        elif [[ "$key" =~ [[:print:]] ]]; then
-            if [[ $char_limit -gt 0 && ${#value} -ge $char_limit ]]; then
-                :
-            else
-                local left="${value:0:cursor_pos}"
-                local right="${value:cursor_pos}"
-                value="${left}${key}${right}"
-                ((cursor_pos++))
-            fi
+        needs_redraw=true
+        blink_counter=0
+        if [[ "$cursor_mode" == "blink" ]]; then
+            cursor_visible=1
         fi
 
-        echo -ne "${ESC}[${total_lines}A" >&2
+        case "$key" in
+            $'\x03'|$'\x04')
+                clear_menu; cleanup; printf '\n' >&2; return 130
+                ;;
+            $'\x1b')
+                local c1="" c2="" c3="" seq=""
+                read -rsn1 -t 0.05 c1 < /dev/tty
+                if [[ -z "$c1" ]]; then
+                    clear_menu; cleanup; printf '\n' >&2; return 130
+                fi
+                if [[ "$c1" == "[" || "$c1" == "O" ]]; then
+                    read -rsn1 -t 0.05 c2 < /dev/tty
+                    seq="${c1}${c2}"
+                    if [[ "$c2" =~ [0-9] ]]; then
+                        read -rsn1 -t 0.05 c3 < /dev/tty
+                        seq+="${c3}"
+                    fi
+                    case "$seq" in
+                        "[C")
+                            ((cursor_pos++))
+                            if ((cursor_pos > ${#value})); then cursor_pos=${#value}; fi
+                            ;;
+                        "[D")
+                            ((cursor_pos--))
+                            if ((cursor_pos < 0)); then cursor_pos=0; fi
+                            ;;
+                        "[H"|"[1~"|"[7~"|"OH")
+                            cursor_pos=0
+                            ;;
+                        "[F"|"[4~"|"[8~"|"OF")
+                            cursor_pos=${#value}
+                            ;;
+                        "[3~")
+                            if (( cursor_pos < ${#value} )); then
+                                local left="${value:0:cursor_pos}"
+                                local right="${value:cursor_pos+1}"
+                                value="${left}${right}"
+                            fi
+                            ;;
+                    esac
+                fi
+                ;;
+            $'\x14')
+                if [[ "$is_password" == "true" && "$pass_toggle_mode" == "on" ]]; then
+                    if [[ "$mask_input" == "true" ]]; then mask_input=false; else mask_input=true; fi
+                fi
+                ;;
+            $'\x7f'|$'\b')
+                if (( cursor_pos > 0 )); then
+                    local left="${value:0:cursor_pos-1}"
+                    local right="${value:cursor_pos}"
+                    value="${left}${right}"
+                    ((cursor_pos--))
+                fi
+                ;;
+            ""|$'\x0a'|$'\x0d')
+                clear_menu; cleanup; printf '%s\n' "$value"; return 0
+                ;;
+            *)
+                if [[ "$key" =~ [[:print:]] ]]; then
+                    insert_char "$key"
+                fi
+                ;;
+        esac
     done
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    trap 'exit 130' TERM
     cmd_input "${@}"
 fi

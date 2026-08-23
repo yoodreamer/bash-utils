@@ -1,103 +1,284 @@
 #!/usr/bin/env bash
 
-ansi_aware_wrap() {
-    local text="$1"
-    local width="$2"
-
-    echo -e "$text" | awk -v width="$width" '
-    function visible_length(str,    stripped) {
-        stripped = str
-        gsub(/\033\[[0-9;]*[a-zA-Z]/, "", stripped)
-        gsub(/\033][^\033]*\033\\/, "", stripped)
-        return length(stripped)
-    }
-
-    {
-        line = $0
-        gsub(/\t/, "    ", line)
-        if (length(line) == 0) { print ""; next }
-
-        current_line = ""; current_len = 0
-        
-        n = split(line, words, " ")
-        if (n == 0) { print line; next }
-
-        remaining = line
-        while (length(remaining) > 0) {
-            match(remaining, /[^[:space:]]+/)
-            if (RSTART == 0) { 
-                current_line = current_line remaining
-                break 
-            }
-            
-            gap = substr(remaining, 1, RSTART - 1)
-            word = substr(remaining, RSTART, RLENGTH)
-            chunk = gap word
-            chunk_len = visible_length(chunk)
-            
-            if (current_len + chunk_len <= width) {
-                current_line = current_line chunk
-                current_len += chunk_len
-            } else {
-                if (current_len > 0) {
-                    print current_line
-                    current_line = word
-                    current_len = visible_length(word)
-                } else {
-                    print chunk
-                    current_line = ""
-                    current_len = 0
-                }
-            }
-            remaining = substr(remaining, RSTART + RLENGTH)
-        }
-        if (length(current_line) > 0) print current_line
-    }'
-}
-
 function cmd_style() {
     local ESC=$'\e'
-    
-    strip_ansi() { sed -E 's/\x1b(\[[0-9;]*[A-Za-z]|\][^\x1b]*\x1b\\)//g' <<< "$1"; }
-    get_str_width() { local clean; clean=$(strip_ansi "$1"); echo ${#clean}; }
-    
-    make_ansi() {
+    local NL=$'\n'
+
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
+
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0 
+        local -r ESC_CHAR=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) case "$c" in
+                       "$ESC_CHAR") state=1 ;;
+                       "$BEL") : ;;
+                       *) out+="$c" ;;
+                   esac ;;
+                1) case "$c" in
+                       '[') state=2 ;;
+                       ']') state=3 ;;
+                       '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                       "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>') state=0 ;;
+                       *) out+="${ESC_CHAR}${c}"; state=0 ;;
+                   esac ;;
+                2) case "$c" in
+                       ';'|'?'|[0-9]) : ;;
+                       *) state=0 ;;
+                   esac ;;
+                3) case "$c" in
+                       [0-9]) state=4 ;;
+                       *) state=0 ;;
+                   esac ;;
+                4) case "$c" in
+                       "$BEL") state=0 ;;
+                       "$ESC_CHAR") state=5 ;;
+                   esac ;;
+                5) state=0 ;;
+            esac
+        done
+        printf '%s' "$out"
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function _list_color_names() {
+        _css_init
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite none clear
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+    function strict_bool() {
+        local val="${1,,}"
+        case "$val" in
+            true|1|yes) printf "true" ;;
+            false|0|no) printf "false" ;;
+            *) printf "INVALID" ;;
+        esac
+    }
+
+    function resolve_color() {
+        local val="${1,,}"
+        [[ -z "$val" ]] && return
+        if [[ "$val" == \#* ]]; then
+            echo "$val"; return
+        fi
+        case "$val" in
+            black) echo "0" ;; red) echo "1" ;; green) echo "2" ;; yellow) echo "3" ;; blue) echo "4" ;;
+            magenta|purple) echo "5" ;; cyan) echo "6" ;; white) echo "7" ;;
+            brightblack|gray|grey) echo "8" ;; brightred) echo "9" ;; brightgreen) echo "10" ;;
+            brightyellow) echo "11" ;; brightblue) echo "12" ;; brightmagenta|brightpurple) echo "13" ;;
+            brightcyan) echo "14" ;; brightwhite) echo "15" ;;
+            *)
+                if [[ "$val" =~ ^[0-9]+$ ]]; then
+                    echo "$val"
+                else
+                    _css_init
+                    local hex="${_CSS_COLORS[$val]:-}"
+                    if [[ -n "$hex" ]]; then
+                        echo "#$hex"
+                    else
+                        echo "$val"
+                    fi
+                fi
+                ;;
+        esac
+    }
+
+    function make_ansi() {
         local fg=$1; local bg=$2; local attr=$3; local seq=""
         [[ -n "$attr" ]] && seq+="${ESC}[${attr}m"
-        [[ -n "$fg" ]] && seq+="${ESC}[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="${ESC}[48;5;${bg}m"
-        echo "$seq"
+        
+        if [[ -n "$fg" && "$fg" != "none" && "$fg" != "clear" ]]; then
+            local c_fg="$(resolve_color "$fg")"
+            if [[ "$c_fg" == \#* ]]; then
+                local hex="${c_fg#\#}"
+                [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+                local r=$(( 16#${hex:0:2} )); local g=$(( 16#${hex:2:2} )); local b=$(( 16#${hex:4:2} ))
+                seq+="${ESC}[38;2;${r};${g};${b}m"
+            else
+                seq+="${ESC}[38;5;${c_fg}m"
+            fi
+        fi
+
+        if [[ -n "$bg" && "$bg" != "none" && "$bg" != "clear" ]]; then
+            local c_bg="$(resolve_color "$bg")"
+            if [[ "$c_bg" == \#* ]]; then
+                local hex="${c_bg#\#}"
+                [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+                local r=$(( 16#${hex:0:2} )); local g=$(( 16#${hex:2:2} )); local b=$(( 16#${hex:4:2} ))
+                seq+="${ESC}[48;2;${r};${g};${b}m"
+            else
+                seq+="${ESC}[48;5;${c_bg}m"
+            fi
+        fi
+        
+        printf '%s' "$seq"
     }
-    
-    repeat_str() {
-        local str=$1; local count=$2
-        if (( count > 0 )); then printf "%0.s${str}" $(seq 1 "$count"); fi
+
+    get_str_width() { 
+        local clean
+        clean=$(strip_ansi "$1")
+        printf '%s' "${#clean}"
     }
 
     parse_spacing() {
         local input=($1)
         case ${#input[@]} in
-            1) echo "${input[0]} ${input[0]} ${input[0]} ${input[0]}" ;;
-            2) echo "${input[0]} ${input[1]} ${input[0]} ${input[1]}" ;;
-            4) echo "${input[0]} ${input[1]} ${input[2]} ${input[3]}" ;;
-            *) echo "0 0 0 0" ;;
+            1) printf "%s %s %s %s" "${input[0]}" "${input[0]}" "${input[0]}" "${input[0]}" ;;
+            2) printf "%s %s %s %s" "${input[0]}" "${input[1]}" "${input[0]}" "${input[1]}" ;;
+            3) printf "%s %s %s %s" "${input[0]}" "${input[1]}" "${input[2]}" "${input[1]}" ;;
+            4) printf "%s %s %s %s" "${input[0]}" "${input[1]}" "${input[2]}" "${input[3]}" ;;
+            *) printf "0 0 0 0" ;;
         esac
+    }
+
+    function ansi_aware_wrap() {
+        local text="$1"
+        local width="$2"
+
+        printf '%s\n' "$text" | awk -v width="$width" '
+        function visible_length(str,    stripped) {
+            stripped = str
+            gsub(/\033\[[0-9;]*[a-zA-Z]/, "", stripped)
+            gsub(/\033\]8;;[^\033]*\033\\/, "", stripped)
+            gsub(/\033\]8;;\033\\/, "", stripped)
+            return length(stripped)
+        }
+        {
+            line = $0
+            gsub(/\t/, "    ", line)
+            if (length(line) == 0) { print ""; next }
+
+            current_line = ""; current_len = 0
+            n = split(line, words, " ")
+            if (n == 0) { print line; next }
+
+            remaining = line
+            while (length(remaining) > 0) {
+                match(remaining, /[^[:space:]]+/)
+                if (RSTART == 0) { 
+                    current_line = current_line remaining
+                    break 
+                }
+                gap = substr(remaining, 1, RSTART - 1)
+                word = substr(remaining, RSTART, RLENGTH)
+                chunk = gap word
+                chunk_len = visible_length(chunk)
+                
+                if (current_len + chunk_len <= width) {
+                    current_line = current_line chunk
+                    current_len += chunk_len
+                } else {
+                    if (current_len > 0) {
+                        print current_line
+                        current_line = word
+                        current_len = visible_length(word)
+                    } else {
+                        print chunk
+                        current_line = ""
+                        current_len = 0
+                    }
+                }
+                remaining = substr(remaining, RSTART + RLENGTH)
+            }
+            if (length(current_line) > 0) print current_line
+        }'
     }
 
     function show_help_panel() {
         cat <<EOF
 Usage: bash-utils style [flags] <text>...
 
-Apply styling to text.
+Apply styling to text with borders, margins, and padding.
 
 Arguments:
-  <text>...            Text to style
+  <text>...            Text to style (or STDIN). Multiple arguments create new lines.
 
 Flags:
   -h, --help           Show help
 
-  --foreground=""      Foreground Color (0-255)
-  --background=""      Background Color (0-255)
+  --foreground=""      Foreground Color (Name (incl. CSS names like 'coral'), Hex, 0-255)
+  --background=""      Background Color (Name, Hex, 0-255)
   --border="none"      Border style (none, normal, rounded, thick, double, hidden)
   --border-foreground  Border Foreground Color
   --border-background  Border Background Color
@@ -111,9 +292,9 @@ Flags:
 
   --bold               Apply bold
   --faint              Apply faint
-  --italic             Apply italic
-  --underline          Apply underline
-  --strikethrough      Apply strikethrough
+  --italic              Apply italic
+  --underline           Apply underline
+  --strikethrough       Apply strikethrough
 EOF
     }
 
@@ -130,87 +311,147 @@ EOF
     local attr_bold="" attr_italic="" attr_underline="" attr_faint="" attr_strikethrough=""
 
     local args_text=()
-    
+    local parse_args=()
+
     while [[ $# -gt 0 ]]; do
-        case "$1" in
+        if [[ "$1" == --*=* ]]; then
+            parse_args+=("${1%%=*}" "${1#*=}")
+        else
+            parse_args+=("$1")
+        fi
+        shift
+    done
+    set -- "${parse_args[@]}"
+
+    while [[ $# -gt 0 ]]; do
+        local key="$1"
+        local val=""
+        local has_val="false"
+
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            has_val="true"
+        fi
+
+        case "$key" in
+            -h|--help) show_help_panel; return 0 ;;
             --) shift; args_text+=("$@"); break ;;
 
-            --foreground=*) foreground="${1#*=}"; shift ;;
-            --foreground)   foreground="$2"; shift 2 ;;
-            
-            --background=*) background="${1#*=}"; shift ;;
-            --background)   background="$2"; shift 2 ;;
-            
-            --border=*)     border_type="${1#*=}"; shift ;;
-            --border)       border_type="$2"; shift 2 ;;
-            
-            --border-foreground=*) border_fg="${1#*=}"; shift ;;
-            --border-foreground)   border_fg="$2"; shift 2 ;;
-            
-            --border-background=*) border_bg="${1#*=}"; shift ;;
-            --border-background)   border_bg="$2"; shift 2 ;;
-            
-            --align=*)      align="${1#*=}"; shift ;;
-            --align)        align="$2"; shift 2 ;;
-            
-            --width=*)      width="${1#*=}"; shift ;;
-            --width)        width="$2"; shift 2 ;;
-            
-            --height=*)     height="${1#*=}"; shift ;;
-            --height)       height="$2"; shift 2 ;;
-            
-            --padding=*)    padding="${1#*=}"; shift ;;
-            --padding)      padding="$2"; shift 2 ;;
-            
-            --margin=*)     margin="${1#*=}"; shift ;;
-            --margin)       margin="$2"; shift 2 ;;
-            
-            --bold)         attr_bold="1;"; shift ;;
-            --faint)        attr_faint="2;"; shift ;;
-            --italic)       attr_italic="3;"; shift ;;
-            --underline)    attr_underline="4;"; shift ;;
-            --strikethrough) attr_strikethrough="9;"; shift ;;
-            
-            -h|--help)      show_help_panel; return 0 ;;
-            
+            --bold|--faint|--italic|--underline|--strikethrough)
+                if [[ "$has_val" == "true" ]]; then
+                    local bval=$(strict_bool "$val")
+                    [[ "$bval" == "INVALID" ]] && die "Valor booleano inválido en '${key}'. Recibido: '${val}'."
+                    if [[ "$bval" == "true" ]]; then
+                        [[ "$key" == "--bold" ]] && attr_bold="1;"
+                        [[ "$key" == "--faint" ]] && attr_faint="2;"
+                        [[ "$key" == "--italic" ]] && attr_italic="3;"
+                        [[ "$key" == "--underline" ]] && attr_underline="4;"
+                        [[ "$key" == "--strikethrough" ]] && attr_strikethrough="9;"
+                    fi
+                else
+                    [[ "$key" == "--bold" ]] && attr_bold="1;"
+                    [[ "$key" == "--faint" ]] && attr_faint="2;"
+                    [[ "$key" == "--italic" ]] && attr_italic="3;"
+                    [[ "$key" == "--underline" ]] && attr_underline="4;"
+                    [[ "$key" == "--strikethrough" ]] && attr_strikethrough="9;"
+                fi
+                shift; continue
+                ;;
+
+            --foreground|--background|--border|--border-foreground|--border-background|--align|--width|--height|--padding|--margin)
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then
+                        die "La bandera '${key}' requiere un valor asignado."
+                    fi
+                    val="$2"
+                    shift 2
+                else
+                    shift
+                fi
+
+                case "$key" in
+                    --foreground|--background|--border-foreground|--border-background)
+                        if ! is_valid_color "$val"; then
+                            die "Color inválido en '${key}'. Recibido: '${val}'. Colores disponibles: $(_list_color_names)"
+                        fi
+                        case "$key" in
+                            --foreground) foreground="$val" ;;
+                            --background) background="$val" ;;
+                            --border-foreground) border_fg="$val" ;;
+                            --border-background) border_bg="$val" ;;
+                        esac
+                        ;;
+                    --border)
+                        case "${val,,}" in
+                            none|normal|rounded|thick|double|hidden) border_type="${val,,}" ;;
+                            *) die "Borde inválido en '${key}'. Literales: none, normal, rounded, thick, double, hidden." ;;
+                        esac ;;
+                    --align)
+                        case "${val,,}" in
+                            left|center|right) align="${val,,}" ;;
+                            *) die "Alineación inválida en '${key}'. Literales: left, center, right." ;;
+                        esac ;;
+                    --width|--height)
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor inválido en '${key}'. Recibido: '${val}'. Entero esperado."
+                        [[ "$key" == "--width" ]] && width="$val"
+                        [[ "$key" == "--height" ]] && height="$val"
+                        ;;
+                    --padding|--margin)
+                        [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+){0,3}$ ]] && die "Spacing CSS inválido en '${key}'. Recibido: '${val}'."
+                        [[ "$key" == "--padding" ]] && padding="$val"
+                        [[ "$key" == "--margin" ]] && margin="$val"
+                        ;;
+                esac
+                ;;
+
             -*) 
-                echo "Error: unknown flag: $1" >&2
-                return 1 
+                die "Bandera desconocida o no soportada: '${key}'."
                 ;;
             
-            *)              
-                args_text+=("$1"); shift 
+            *)  
+                args_text+=("$1")
+                shift 
                 ;;
         esac
     done
 
     local raw_content=""
     if [[ ${#args_text[@]} -gt 0 ]]; then
-        local has_newlines=false
-        for arg in "${args_text[@]}"; do
-            if [[ "$arg" == *$'\n'* ]]; then has_newlines=true; break; fi
+        for ((i=0; i<${#args_text[@]}; i++)); do
+            raw_content+="${args_text[i]}"
+            if (( i < ${#args_text[@]} - 1 )); then
+                raw_content+=$'\n'
+            fi
         done
-        
-        if [[ "$has_newlines" == "true" ]]; then
-             raw_content="${args_text[*]}"
-        else
-             raw_content="${args_text[*]}"
-        fi
     elif [ ! -t 0 ]; then
         raw_content=$(cat)
     fi
 
     if [[ -z "$raw_content" ]]; then return 0; fi
 
-    local term_cols=$(tput cols)
+    local stty_orig
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon < /dev/tty 2>/dev/null
+    
+    trap 'stty "$stty_orig" < /dev/tty 2>/dev/null; exit 130' INT TERM
+
+    local term_cols=$(tput cols 2>/dev/null || echo 80)
     local wrap_at=$term_cols
     
+    local pt pr pb pl mt mr mb ml
     read pt pr pb pl <<< "$(parse_spacing "$padding")"
+    read mt mr mb ml <<< "$(parse_spacing "$margin")"
     
     if (( width > 0 )); then
         local border_w=0
         [[ "$border_type" != "none" ]] && border_w=2
         wrap_at=$(( width - border_w - pl - pr ))
+        if (( wrap_at < 1 )); then wrap_at=1; fi
+    else
+        local border_w=0
+        [[ "$border_type" != "none" ]] && border_w=2
+        wrap_at=$(( term_cols - border_w - pl - pr - ml - mr ))
         if (( wrap_at < 1 )); then wrap_at=1; fi
     fi
 
@@ -236,8 +477,9 @@ EOF
     local combined_attr="${attr_bold}${attr_faint}${attr_italic}${attr_underline}${attr_strikethrough}"
     combined_attr="${combined_attr%;}" 
     
-    local s_text="$(make_ansi "$foreground" "$background" "$combined_attr")"
-    local s_border="$(make_ansi "$border_fg" "$border_bg")"
+    local s_bg="$(make_ansi "" "$background" "")"
+    local s_text_style="$(make_ansi "$foreground" "" "$combined_attr")"
+    local s_border="$(make_ansi "$border_fg" "$border_bg" "")"
     local reset="${ESC}[0m"
 
     local -n B
@@ -250,29 +492,28 @@ EOF
         *)       B=B_NONE ;;
     esac
 
-    read mt mr mb ml <<< "$(parse_spacing "$margin")"
     local inner_full_width=$(( pl + target_w + pr ))
-    local mar_l_str=$(repeat_str " " $ml)
-    local pad_l_str=$(repeat_str " " $pl)
-    local pad_r_str=$(repeat_str " " $pr)
-
     
-    repeat_str $'\n' $mt
+    local mar_l_str=""; for ((_i=0; _i<ml; _i++)); do mar_l_str+=" "; done
+    local pad_l_str=""; for ((_i=0; _i<pl; _i++)); do pad_l_str+=" "; done
+    local pad_r_str=""; for ((_i=0; _i<pr; _i++)); do pad_r_str+=" "; done
+    local b_t_str=""; for ((_i=0; _i<inner_full_width; _i++)); do b_t_str+="${B[t]}"; done
+    local pad_c_str=""; for ((_i=0; _i<inner_full_width; _i++)); do pad_c_str+=" "; done
+
+    local frame=""
+    
+    for ((i=0; i<mt; i++)); do frame+="${NL}"; done
 
     if [[ "$border_type" != "none" ]]; then
-        echo -ne "${mar_l_str}${s_border}${B[tl]}"
-        repeat_str "${B[t]}" $inner_full_width
-        echo -e "${B[tr]}${reset}"
+        frame+="${mar_l_str}${s_border}${B[tl]}${b_t_str}${B[tr]}${reset}${NL}"
     fi
 
     for ((i=0; i<pt; i++)); do
-        echo -ne "${mar_l_str}"
-        [[ "$border_type" != "none" ]] && echo -ne "${s_border}${B[l]}${reset}"
-        echo -ne "${s_text}"
-        repeat_str " " $inner_full_width
-        echo -ne "${reset}"
-        [[ "$border_type" != "none" ]] && echo -ne "${s_border}${B[r]}${reset}"
-        echo ""
+        frame+="${mar_l_str}"
+        [[ "$border_type" != "none" ]] && frame+="${s_border}${B[l]}${reset}"
+        frame+="${s_bg}${pad_c_str}${reset}"
+        [[ "$border_type" != "none" ]] && frame+="${s_border}${B[r]}${reset}"
+        frame+="${NL}"
     done
 
     local content_lines=${#lines[@]}
@@ -305,36 +546,38 @@ EOF
             fill_r=$extra_space
         fi
 
-        echo -ne "${mar_l_str}"
-        [[ "$border_type" != "none" ]] && echo -ne "${s_border}${B[l]}${reset}"
-        
-        echo -ne "${s_text}${pad_l_str}"
-        repeat_str " " $fill_l
-        echo -ne "${line}"
-        repeat_str " " $fill_r
-        echo -ne "${pad_r_str}${reset}"
+        local f_l_str=""; for ((_f=0; _f<fill_l; _f++)); do f_l_str+=" "; done
+        local f_r_str=""; for ((_f=0; _f<fill_r; _f++)); do f_r_str+=" "; done
 
-        [[ "$border_type" != "none" ]] && echo -ne "${s_border}${B[r]}${reset}"
-        echo ""
+        frame+="${mar_l_str}"
+        [[ "$border_type" != "none" ]] && frame+="${s_border}${B[l]}${reset}"
+        
+        frame+="${s_bg}${pad_l_str}${f_l_str}${s_text_style}${line}${reset}${s_bg}${f_r_str}${pad_r_str}${reset}"
+
+        [[ "$border_type" != "none" ]] && frame+="${s_border}${B[r]}${reset}"
+        frame+="${NL}"
     done
 
     for ((i=0; i<pb; i++)); do
-        echo -ne "${mar_l_str}"
-        [[ "$border_type" != "none" ]] && echo -ne "${s_border}${B[l]}${reset}"
-        echo -ne "${s_text}"
-        repeat_str " " $inner_full_width
-        echo -ne "${reset}"
-        [[ "$border_type" != "none" ]] && echo -ne "${s_border}${B[r]}${reset}"
-        echo ""
+        frame+="${mar_l_str}"
+        [[ "$border_type" != "none" ]] && frame+="${s_border}${B[l]}${reset}"
+        frame+="${s_bg}${pad_c_str}${reset}"
+        [[ "$border_type" != "none" ]] && frame+="${s_border}${B[r]}${reset}"
+        frame+="${NL}"
     done
 
     if [[ "$border_type" != "none" ]]; then
-        echo -ne "${mar_l_str}${s_border}${B[bl]}"
-        repeat_str "${B[b]}" $inner_full_width
-        echo -e "${B[br]}${reset}"
+        frame+="${mar_l_str}${s_border}${B[bl]}${b_t_str}${B[br]}${reset}${NL}"
     fi
 
-    repeat_str $'\n' $mb
+    for ((i=0; i<mb; i++)); do frame+="${NL}"; done
+
+    while read -rsn1 -t 0.01 _trash < /dev/tty 2>/dev/null; do :; done
+    stty "$stty_orig" < /dev/tty 2>/dev/null
+    trap - INT TERM
+
+    printf '%s' "${frame%"$NL"}"
+    printf '\n'
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

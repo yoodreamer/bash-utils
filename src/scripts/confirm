@@ -1,12 +1,135 @@
 #!/usr/bin/env bash
 
 function cmd_confirm() {
-    
+    local ESC=$'\e'
+    local NL=$'\n'
+
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+    function _list_color_names() {
+        _css_init
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function _color_seq() {
+        local val="${1,,}" layer="$2"
+        [[ -z "$val" || "$val" == "none" || "$val" == "clear" ]] && return
+        if [[ "$val" == \#* ]]; then
+            local hex="${val#\#}"
+            [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+            local r=$(( 16#${hex:0:2} ))
+            local g=$(( 16#${hex:2:2} ))
+            local b=$(( 16#${hex:4:2} ))
+            printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+        elif [[ "$val" =~ ^[0-9]+$ ]]; then
+            printf "${ESC}[%d;5;%dm" "$layer" "$val"
+        else
+            local base=0
+            [[ "$layer" == 38 ]] && base=30
+            [[ "$layer" == 48 ]] && base=40
+            case "$val" in
+                black)                 printf "${ESC}[%dm" $((base + 0)) ;;
+                red)                   printf "${ESC}[%dm" $((base + 1)) ;;
+                green)                 printf "${ESC}[%dm" $((base + 2)) ;;
+                yellow)                printf "${ESC}[%dm" $((base + 3)) ;;
+                blue)                  printf "${ESC}[%dm" $((base + 4)) ;;
+                magenta|purple)        printf "${ESC}[%dm" $((base + 5)) ;;
+                cyan)                  printf "${ESC}[%dm" $((base + 6)) ;;
+                white)                 printf "${ESC}[%dm" $((base + 7)) ;;
+                gray|grey|brightblack) printf "${ESC}[%dm" $((base + 60)) ;;
+                brightred)             printf "${ESC}[%dm" $((base + 61)) ;;
+                brightgreen)           printf "${ESC}[%dm" $((base + 62)) ;;
+                brightyellow)          printf "${ESC}[%dm" $((base + 63)) ;;
+                brightblue)            printf "${ESC}[%dm" $((base + 64)) ;;
+                brightmagenta|brightpurple) printf "${ESC}[%dm" $((base + 65)) ;;
+                brightcyan)            printf "${ESC}[%dm" $((base + 66)) ;;
+                brightwhite)           printf "${ESC}[%dm" $((base + 67)) ;;
+                *)
+                    _css_init
+                    local hex="${_CSS_COLORS[$val]:-}"
+                    if [[ -n "$hex" ]]; then
+                        local r=$(( 16#${hex:0:2} ))
+                        local g=$(( 16#${hex:2:2} ))
+                        local b=$(( 16#${hex:4:2} ))
+                        printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+                    fi
+                    ;;
+            esac
+        fi
+    }
+
     function make_ansi() {
-        local fg=$1; local bg=$2; local seq=""
-        [[ -n "$fg" ]] && seq+="\e[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="\e[48;5;${bg}m"
-        echo "$seq"
+        local fg=$1; local bg=$2
+        _color_seq "$fg" 38
+        _color_seq "$bg" 48
     }
 
     local prompt="Are you sure?"
@@ -17,12 +140,16 @@ function cmd_confirm() {
     local show_output=false
     local show_help_footer=true
     
-    local c_prompt_fg=""        ; local c_prompt_bg=""
-    local c_sel_fg="255"        ; local c_sel_bg="212"  
-    local c_unsel_fg="240"      ; local c_unsel_bg=""   
+    local padding="0 0 0 0"
+    local c_prompt_fg="#7571F9" ; local c_prompt_bg=""
+    local c_sel_fg="230"        ; local c_sel_bg="212"  
+    local c_unsel_fg="254"      ; local c_unsel_bg="235" 
+    local c_footer_fg="240"     ; local c_footer_bg=""
     
-    local col_msg=$'\e[38;2;95;95;95m'
-    local col_reset=$'\e[0m'
+    local p_bold="true"
+    local p_italic="false"
+    
+    local col_reset="${ESC}[0m"
 
     function show_help_panel() {
         cat <<EOF
@@ -31,7 +158,7 @@ Usage: bash-utils confirm [<prompt>] [flags]
 Ask a user to confirm an action
 
 Arguments:
-  [<prompt>]                 Prompt to display.
+  [<prompt>]    Prompt to display.
 
 Flags:
   -h, --help                 Show context-sensitive help.
@@ -39,59 +166,95 @@ Flags:
       --show-output          Print prompt and chosen action to output
       --affirmative="Yes"    The title of the affirmative action
       --negative="No"        The title of the negative action
-      --timeout=0            Timeout in seconds
-      --no-show-help         Hide help key binds
+      --[no-]show-help       Show help key binds
+      --timeout=0s           Timeout until confirm returns selected value
 
-Style Flags:
-  --prompt.foreground        Foreground Color
-  --prompt.background        Background Color
-  --selected.foreground      Foreground Color
-  --selected.background      Background Color
-  --unselected.foreground    Foreground Color
-  --unselected.background    Background Color
+Style Flags (Colors accept 0-255, #RRGGBB, or CSS names e.g. "coral"):
+  --prompt.foreground="#7571F9"    Foreground Color
+  --prompt.background=""           Background Color
+  --[no-]prompt.bold               Bold Prompt text (default: true)
+  --prompt.italic                  Italic Prompt text (default: false)
+  --selected.foreground="230"      Foreground Color
+  --selected.background="212"      Background Color
+  --unselected.foreground="254"    Foreground Color
+  --unselected.background="235"    Background Color
+  --footer.foreground="240"        Foreground Color
+  --footer.background=""           Background Color
+  --padding="0 0"                  Padding CSS (top right bottom left)
 EOF
     }
 
     while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help) show_help_panel; return 0 ;;
+        local key="$1"
+        local val=""
+        local has_val="false"
+
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            has_val="true"
+        fi
+
+        case "$key" in
+            -h|--help)                  [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_help_panel; return 0 ;;
+            --show-output)              [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_output=true; shift; continue ;;
+            --no-show-help)             [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_help_footer=false; shift; continue ;;
+            --show-help)                [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; show_help_footer=true; shift; continue ;;
+            --prompt.bold)              [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; p_bold="true"; shift; continue ;;
+            --no-prompt.bold)           [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; p_bold="false"; shift; continue ;;
+            --prompt.italic)            [[ "$has_val" == "true" ]] && die "La bandera '${key}' no acepta valores."; p_italic="true"; shift; continue ;;
             
-            --affirmative=*) aff_text="${1#*=}"; shift ;;
-            --affirmative)   aff_text="$2"; shift 2 ;;
-            
-            --negative=*) neg_text="${1#*=}"; shift ;;
-            --negative)   neg_text="$2"; shift 2 ;;
-            
-            --default=*) default_choice="${1#*=}"; shift ;;
-            --default)   default_choice="$2"; shift 2 ;;
-            
-            --timeout=*) timeout="${1#*=}"; shift ;;
-            --timeout)   timeout="$2"; shift 2 ;;
-            
-            --show-output) show_output=true; shift ;;
-            --no-show-help) show_help_footer=false; shift ;;
-            
-            --prompt.foreground=*) c_prompt_fg="${1#*=}"; shift ;;
-            --prompt.foreground)   c_prompt_fg="$2"; shift 2 ;;
-            --prompt.background=*) c_prompt_bg="${1#*=}"; shift ;;
-            --prompt.background)   c_prompt_bg="$2"; shift 2 ;;
-            
-            --selected.foreground=*) c_sel_fg="${1#*=}"; shift ;;
-            --selected.foreground)   c_sel_fg="$2"; shift 2 ;;
-            --selected.background=*) c_sel_bg="${1#*=}"; shift ;;
-            --selected.background)   c_sel_bg="$2"; shift 2 ;;
-            
-            --unselected.foreground=*) c_unsel_fg="${1#*=}"; shift ;;
-            --unselected.foreground)   c_unsel_fg="$2"; shift 2 ;;
-            --unselected.background=*) c_unsel_bg="${1#*=}"; shift ;;
-            --unselected.background)   c_unsel_bg="$2"; shift 2 ;;
-            
-            *) 
-                if [[ "$1" == -* ]]; then
-                    echo "Error: Unknown flag $1" >&2; return 1
+            --default|--affirmative|--negative|--timeout|--padding|--prompt.foreground|--prompt.background|--selected.foreground|--selected.background|--unselected.foreground|--unselected.background|--footer.foreground|--footer.background)
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then
+                        die "La bandera '${key}' requiere un valor asignado."
+                    fi
+                    val="$2"
+                    shift 2
                 else
-                    prompt="$1"; shift
+                    shift
                 fi
+                
+                case "$key" in
+                    --default)               default_choice="$val" ;;
+                    --affirmative)           aff_text="$val" ;;
+                    --negative)              neg_text="$val" ;;
+                    --timeout)
+                        val="${val%s}"
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "Valor para '--timeout' inválido. Recibido: '${val}'. Literal esperado: Entero >= 0."
+                        timeout="$val" 
+                        ;;
+                    --padding)
+                        [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+){0,3}$ ]] && die "Padding inválido en '${key}'. Recibido: '${val}'. Literal esperado: 1 a 4 números."
+                        padding="$val" 
+                        ;;
+                    
+                    # Colores
+                    --prompt.foreground|--prompt.background|--selected.foreground|--selected.background|--unselected.foreground|--unselected.background|--footer.foreground|--footer.background)
+                        if ! is_valid_color "$val"; then
+                            die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                        fi
+                        case "$key" in
+                            --prompt.foreground)     c_prompt_fg="$val" ;;
+                            --prompt.background)     c_prompt_bg="$val" ;;
+                            --selected.foreground)   c_sel_fg="$val" ;;
+                            --selected.background)   c_sel_bg="$val" ;;
+                            --unselected.foreground) c_unsel_fg="$val" ;;
+                            --unselected.background) c_unsel_bg="$val" ;;
+                            --footer.foreground)     c_footer_fg="$val" ;;
+                            --footer.background)     c_footer_bg="$val" ;;
+                        esac
+                        ;;
+                esac
+                ;;
+            
+            --*) 
+                die "Bandera desconocida o no soportada: '${key}'. Usa '--help' para ver la lista de banderas permitidas."
+                ;;
+                
+            *) 
+                prompt="$key"
+                shift 
                 ;;
         esac
     done
@@ -99,101 +262,208 @@ EOF
     local selected_idx=0
     
     default_choice="${default_choice,,}" 
-    if [[ "$default_choice" == "no" || "$default_choice" == "false" || "$default_choice" == "$neg_text" ]]; then
+    if [[ "$default_choice" == "no" || "$default_choice" == "false" || "$default_choice" == "${neg_text,,}" ]]; then
         selected_idx=1
+    elif [[ "$default_choice" != "yes" && "$default_choice" != "true" && "$default_choice" != "${aff_text,,}" ]]; then
+        die "Valor para '--default' inválido. Recibido: '${default_choice}'. Literales esperados: true, false, yes, no, o textos de affirmative/negative."
     fi
 
-    local style_prompt="$(make_ansi "$c_prompt_fg" "$c_prompt_bg")\e[1m"
-    local style_sel="$(make_ansi "$c_sel_fg" "$c_sel_bg")\e[1m"
+    local p_style_ext=""
+    [[ "$p_bold" == "true" ]] && p_style_ext+="${ESC}[1m"
+    [[ "$p_italic" == "true" ]] && p_style_ext+="${ESC}[3m"
+
+    local style_prompt="$(make_ansi "$c_prompt_fg" "$c_prompt_bg")${p_style_ext}"
+    local style_sel="$(make_ansi "$c_sel_fg" "$c_sel_bg")${ESC}[1m"
     local style_unsel="$(make_ansi "$c_unsel_fg" "$c_unsel_bg")"
+    local style_footer="$(make_ansi "$c_footer_fg" "$c_footer_bg")"
 
-    tput civis >&2 
-    trap 'tput cnorm >&2' EXIT
+    local pad_t=0 pad_r=0 pad_b=0 pad_l=0
+    read -ra _pv <<< "$padding"
+    case "${#_pv[@]}" in
+        1) pad_t="${_pv[0]}"; pad_r="${_pv[0]}"; pad_b="${_pv[0]}"; pad_l="${_pv[0]}" ;;
+        2) pad_t="${_pv[0]}"; pad_b="${_pv[0]}"; pad_r="${_pv[1]}"; pad_l="${_pv[1]}" ;;
+        3) pad_t="${_pv[0]}"; pad_r="${_pv[1]}"; pad_l="${_pv[1]}"; pad_b="${_pv[2]}" ;;
+        4) pad_t="${_pv[0]}"; pad_r="${_pv[1]}"; pad_b="${_pv[2]}"; pad_l="${_pv[3]}" ;;
+    esac
 
-    echo -e "${style_prompt}${prompt}${col_reset}" >&2
+    local pad_indent=""
+    for (( _p=0; _p<pad_l; _p++ )); do pad_indent+=" "; done
+
+    local prompt_lines=0
+    local p_lines=()
+    if [[ -n "$prompt" ]]; then
+        mapfile -t p_lines < <(printf '%s' "$prompt")
+        prompt_lines=${#p_lines[@]}
+    fi
+
+    local footer_lines=0
+    [[ "$show_help_footer" == "true" ]] && footer_lines=2
     
-    function draw_buttons() {
-        local buffer=""
-        local pad="  " 
-        
-        if [[ $selected_idx -eq 0 ]]; then
-            buffer+="${style_sel}${pad}${aff_text}${pad}${col_reset}"
-        else
-            buffer+="${style_unsel}${pad}${aff_text}${pad}${col_reset}"
-        fi
+    local total_lines=$(( pad_t + prompt_lines + 2 + footer_lines + pad_b ))
 
-        buffer+="    " 
+    local alloc_str=""
+    for ((i=0; i<total_lines; i++)); do alloc_str+="${NL}"; done
+    printf '%s' "${alloc_str}${ESC}[${total_lines}A" >&2
 
-        if [[ $selected_idx -eq 1 ]]; then
-            buffer+="${style_sel}${pad}${neg_text}${pad}${col_reset}"
+    local stty_orig
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon -isig < /dev/tty 2>/dev/null
+
+    local _interrupted=0
+    local needs_redraw=true
+
+    trap '_interrupted=1' SIGINT TERM
+    trap 'needs_redraw=true' SIGWINCH
+
+    function cleanup() {
+        while read -rsn1 -t 0.05 _trash < /dev/tty 2>/dev/null; do :; done
+        if [[ -n "$stty_orig" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null
         else
-            buffer+="${style_unsel}${pad}${neg_text}${pad}${col_reset}"
+            stty sane < /dev/tty 2>/dev/null
         fi
-        
-        echo -ne "\r${buffer}\e[K" >&2
+        tput cnorm >&2
+        printf '%s' "${ESC}[?7h${ESC}[?1000l${ESC}[?1002l${ESC}[?1006l" >&2
     }
 
-    draw_buttons
-    
-    if [[ "$show_help_footer" == "true" ]]; then
-        echo "" >&2 
-        echo -ne "${col_msg}←/→ toggle • y/n select${col_reset}\r\e[1A" >&2
-    fi
+    function clear_menu() {
+        if (( total_lines > 0 )); then
+            local clear_frame=""
+            for ((k=0; k<total_lines; k++)); do clear_frame+="${ESC}[K${NL}"; done
+            printf '%s' "${clear_frame}${ESC}[${total_lines}A" >&2
+        fi
+    }
+
+    tput civis >&2 
+
+    function draw() {
+        local frame=""
+        
+        for (( _p=0; _p<pad_t; _p++ )); do frame+="${ESC}[K${NL}"; done
+        
+        if [[ $prompt_lines -gt 0 ]]; then
+            for p_line in "${p_lines[@]}"; do
+                frame+="${pad_indent} ${style_prompt}${p_line}${col_reset}${ESC}[K${NL}"
+            done
+        fi
+        
+        frame+="${ESC}[K${NL}"
+        
+        local pad="   " 
+        local btn_buffer="${pad_indent} "
+        
+        if [[ $selected_idx -eq 0 ]]; then
+            btn_buffer+="${style_sel}${pad}${aff_text}${pad}${col_reset}"
+        else
+            btn_buffer+="${style_unsel}${pad}${aff_text}${pad}${col_reset}"
+        fi
+
+        btn_buffer+=" " 
+
+        if [[ $selected_idx -eq 1 ]]; then
+            btn_buffer+="${style_sel}${pad}${neg_text}${pad}${col_reset}"
+        else
+            btn_buffer+="${style_unsel}${pad}${neg_text}${pad}${col_reset}"
+        fi
+        
+        frame+="${btn_buffer}${ESC}[K${NL}"
+
+        if [[ "$show_help_footer" == "true" ]]; then
+            frame+="${ESC}[K${NL}" 
+            frame+="${pad_indent}${style_footer}←→ toggle • enter submit • y ${aff_text} • n ${neg_text}${col_reset}${ESC}[K${NL}"
+        fi
+
+        for (( _p=0; _p<pad_b; _p++ )); do frame+="${ESC}[K${NL}"; done
+
+        frame+="${ESC}[${total_lines}A"
+        printf '%s' "${frame}" >&2
+    }
 
     local start_time=$(date +%s)
 
     while true; do
-        local read_timeout=""
-        if [[ $timeout -gt 0 ]]; then
-            local current_time=$(date +%s)
-            local elapsed=$((current_time - start_time))
-            local remaining=$((timeout - elapsed))
-            if [[ $remaining -le 0 ]]; then break; fi
-            read_timeout="-t $remaining"
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
         fi
 
-        IFS= read -rsn1 $read_timeout key
-        local exit_code=$?
+        local read_opts=("-rsn1" "-t" "0.05")
+        if [[ $timeout -gt 0 ]]; then
+            local now=$(date +%s)
+            local elapsed=$((now - start_time))
+            if (( elapsed >= timeout )); then
+                clear_menu
+                cleanup
+                if [[ "$selected_idx" -eq 1 ]]; then
+                    [[ "$show_output" == "true" ]] && printf ' %s\n %s\n' "$prompt" "$neg_text"
+                    return 1
+                else
+                    [[ "$show_output" == "true" ]] && printf ' %s\n %s\n' "$prompt" "$aff_text"
+                    return 0
+                fi
+            fi
+        fi
 
-        if [[ $timeout -gt 0 && $exit_code -gt 128 ]]; then break; fi
+        local _read_status=0
+        IFS= read "${read_opts[@]}" key < /dev/tty || _read_status=$?
+
+        if [[ $_interrupted -eq 1 ]]; then
+            clear_menu
+            cleanup
+            return 130
+        fi
+
+        if [[ $_read_status -ne 0 ]]; then continue; fi
         
+        needs_redraw=true
+
         case "$key" in
+            $'\x03'|$'\x04'|'q') 
+                clear_menu
+                cleanup
+                return 130 
+                ;;
             $'\x1b') 
-                read -rsn2 -t 0.1 next_chars
-                case "$next_chars" in
-                    '[C'|'[D') ((selected_idx = 1 - selected_idx)); draw_buttons ;;
-                esac
+                local c1="" c2="" c3="" seq=""
+                IFS= read -rsn1 -t 0.15 c1 < /dev/tty || true
+                if [[ -z "$c1" ]]; then continue; fi
+
+                if [[ "$c1" == "[" || "$c1" == "O" ]]; then
+                    IFS= read -rsn1 -t 0.15 c2 < /dev/tty || true
+                    if [[ -z "$c2" ]]; then continue; fi
+
+                    seq="${c1}${c2}"
+                    if [[ "$c2" =~ [0-9] ]]; then
+                        IFS= read -rsn1 -t 0.15 c3 < /dev/tty || true
+                        seq="${seq}${c3}"
+                    fi
+
+                    case "$seq" in
+                        "[C"|"OC"|"[D"|"OD") ((selected_idx = 1 - selected_idx)) ;;
+                    esac
+                fi
                 ;;
             'h'|'l'|$'\t') 
                 ((selected_idx = 1 - selected_idx))
-                draw_buttons 
                 ;;
-            'y'|'Y') selected_idx=0; draw_buttons; break ;;
-            'n'|'N') selected_idx=1; draw_buttons; break ;;
-            "") break ;; 
-            'q') 
-                if [[ "$show_help_footer" == "true" ]]; then echo -ne "\n\e[2K\e[1A" >&2; fi
-                echo -ne "\r\e[2K\e[1A\e[2K\r" >&2
-                return 1 ;;
+            'y'|'Y') selected_idx=0; break ;;
+            'n'|'N') selected_idx=1; break ;;
+            ""|$'\x0a'|$'\x0d') break ;; 
         esac
     done
 
-    
-    if [[ "$show_help_footer" == "true" ]]; then
-        echo -ne "\n\e[2K\e[1A" >&2
-    fi
-
-    echo -ne "\r\e[2K" >&2
-
-    echo -ne "\e[1A\e[2K\r" >&2
-
-    tput cnorm >&2
+    clear_menu
+    cleanup
 
     if [[ $selected_idx -eq 0 ]]; then
-        [[ "$show_output" == "true" ]] && echo "$aff_text"
+        if [[ "$show_output" == "true" ]]; then 
+            printf ' %s\n %s\n' "$prompt" "$aff_text"
+        fi
         return 0
     else
-        [[ "$show_output" == "true" ]] && echo "$neg_text"
+        if [[ "$show_output" == "true" ]]; then 
+            printf ' %s\n %s\n' "$prompt" "$neg_text"
+        fi
         return 1
     fi
 }

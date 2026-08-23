@@ -1,24 +1,222 @@
 #!/usr/bin/env bash
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "$SCRIPT_DIR/messagebox" ]]; then
-    source "$SCRIPT_DIR/messagebox"
-else
-    function messagebox() { echo "Error: messagebox.sh not found"; }
-fi
-
 function cmd_file() {
-    function make_ansi() {
-        local fg=$1; local bg=$2; local seq=""
-        [[ -n "$fg" ]] && seq+="\033[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="\033[48;5;${bg}m"
-        printf "%s" "$seq"
+    local ESC=$'\e'
+    local NL=$'\r\n'
+    local DELIM=$'\x1f'
+
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0
+        local -r ESC=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0)
+                    case "$c" in
+                        "$ESC") state=1 ;;
+                        "$BEL") : ;;
+                        *) out+="$c" ;;
+                    esac
+                    ;;
+                1)
+                    case "$c" in
+                        '[') state=2 ;;
+                        ']') state=3 ;;
+                        '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                        "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>')
+                            state=0 ;;
+                        *)
+                            out+="${ESC}${c}"
+                            state=0
+                            ;;
+                    esac
+                    ;;
+                2)
+                    case "$c" in
+                        ';'|'?'|[0-9]) : ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                3)
+                    case "$c" in
+                        [0-9]) state=4 ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                4)
+                    case "$c" in
+                        "$BEL") state=0 ;;
+                        "$ESC") state=5 ;;
+                    esac
+                    ;;
+                5)
+                    state=0
+                    ;;
+            esac
+        done
+
+        printf '%s' "$out"
     }
 
     function die() {
-        echo -e "\033[31mError: $1\033[0m" >&2
-        rm -f "$TEMP_CACHE" 2>/dev/null
+        echo -e "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function _list_color_names() {
+        _css_init
+        printf '%s\n' "${!_CSS_COLORS[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
         return 1
+    }
+
+    function strict_bool() {
+        local val="${1,,}"
+        case "$val" in
+            true|1|yes) echo "true" ;;
+            false|0|no) echo "false" ;;
+            *) echo "INVALID" ;;
+        esac
+    }
+
+    function _color_seq() {
+        local val="${1,,}" layer="$2"
+        [[ -z "$val" || "$val" == "none" || "$val" == "clear" ]] && return
+        
+        if [[ "$val" == \#* ]]; then
+            local hex="${val#\#}"
+            [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+            local r=$(( 16#${hex:0:2} ))
+            local g=$(( 16#${hex:2:2} ))
+            local b=$(( 16#${hex:4:2} ))
+            printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+            return
+        fi
+        
+        if [[ "$val" =~ ^[0-9]+$ ]]; then
+            printf "${ESC}[%d;5;%dm" "$layer" "$val"
+            return
+        fi
+        
+        local base=0
+        [[ "$layer" == 38 ]] && base=30
+        [[ "$layer" == 48 ]] && base=40
+        
+        case "$val" in
+            black)                 printf "${ESC}[%dm" $((base + 0)) ;;
+            red)                   printf "${ESC}[%dm" $((base + 1)) ;;
+            green)                 printf "${ESC}[%dm" $((base + 2)) ;;
+            yellow)                printf "${ESC}[%dm" $((base + 3)) ;;
+            blue)                  printf "${ESC}[%dm" $((base + 4)) ;;
+            magenta|purple)        printf "${ESC}[%dm" $((base + 5)) ;;
+            cyan)                  printf "${ESC}[%dm" $((base + 6)) ;;
+            white)                 printf "${ESC}[%dm" $((base + 7)) ;;
+            gray|grey|brightblack) printf "${ESC}[%dm" $((base + 60)) ;;
+            brightred)             printf "${ESC}[%dm" $((base + 61)) ;;
+            brightgreen)           printf "${ESC}[%dm" $((base + 62)) ;;
+            brightyellow)          printf "${ESC}[%dm" $((base + 63)) ;;
+            brightblue)            printf "${ESC}[%dm" $((base + 64)) ;;
+            brightmagenta|brightpurple) printf "${ESC}[%dm" $((base + 65)) ;;
+            brightcyan)            printf "${ESC}[%dm" $((base + 66)) ;;
+            brightwhite)           printf "${ESC}[%dm" $((base + 67)) ;;
+            *)
+                _css_init
+                local css_hex="${_CSS_COLORS[$val]:-}"
+                if [[ -n "$css_hex" ]]; then
+                    local r=$(( 16#${css_hex:0:2} ))
+                    local g=$(( 16#${css_hex:2:2} ))
+                    local b=$(( 16#${css_hex:4:2} ))
+                    printf "${ESC}[%d;2;%d;%d;%dm" "$layer" "$r" "$g" "$b"
+                fi
+                ;;
+        esac
+    }
+
+    function make_ansi() {
+        local fg="$1" bg="$2"
+        _color_seq "$fg" 38
+        _color_seq "$bg" 48
+    }
+
+    function build_style() {
+        local fg="$1" bg="$2" bold="$3" italic="$4" under="$5" strike="$6" faint="$7"
+        local seq=""
+        [[ "$bold" == "true" ]] && seq+="${ESC}[1m"
+        [[ "$faint" == "true" ]] && seq+="${ESC}[2m"
+        [[ "$italic" == "true" ]] && seq+="${ESC}[3m"
+        [[ "$under" == "true" ]] && seq+="${ESC}[4m"
+        [[ "$strike" == "true" ]] && seq+="${ESC}[9m"
+        seq+=$(make_ansi "$fg" "$bg")
+        echo "$seq"
     }
 
     local current_path="."
@@ -26,446 +224,737 @@ function cmd_file() {
     local show_all=false
     local show_perms=true
     local show_size=true
-    local show_header=true
     local show_help_footer=true
-    local max_rows=10
-    local padding_h=0 
+    local allow_file=true
+    local allow_directory=false
+    local height=10
+    local timeout=0
+    local returns="path"
+    local padding="0 0 0 0"
+    local perm_custom=""
+    local icons_mode="lsd"
 
-    local initial_limit=50
-    local lazy_step=5
-    local visible_limit=$initial_limit
-
-    local c_cursor_fg="212"; local c_cursor_bg=""
-    local c_symlink_fg="36"; local c_symlink_bg=""
-    local c_dir_fg="5";      local c_dir_bg=""
-    local c_file_fg="255";   local c_file_bg=""
-    local c_perm_fg="244";   local c_perm_bg=""
-    local c_size_fg="244";   local c_size_bg=""
-    local c_sel_fg="212";    local c_sel_bg=""
+    local c_cursor_fg="212" c_cursor_bg="" c_cursor_b="false" c_cursor_i="false" c_cursor_u="false" c_cursor_s="false" c_cursor_f="false"
+    local c_symlink_fg="36" c_symlink_bg="" c_symlink_b="false" c_symlink_i="false" c_symlink_u="false" c_symlink_s="false" c_symlink_f="false"
+    local c_dir_fg="99" c_dir_bg="" c_dir_b="false" c_dir_i="false" c_dir_u="false" c_dir_s="false" c_dir_f="false"
+    local c_file_fg="" c_file_bg="" c_file_b="false" c_file_i="false" c_file_u="false" c_file_s="false" c_file_f="false"
+    local c_exec_fg="2" c_exec_bg="" c_exec_b="true" c_exec_i="false" c_exec_u="false" c_exec_s="false" c_exec_f="false"
+    local c_perm_fg="244" c_perm_bg="" c_perm_b="false" c_perm_i="false" c_perm_u="false" c_perm_s="false" c_perm_f="false"
+    local c_size_fg="240" c_size_bg="" c_size_b="false" c_size_i="false" c_size_u="false" c_size_s="false" c_size_f="false"
+    local c_sel_fg="212" c_sel_bg="" c_sel_b="false" c_sel_i="false" c_sel_u="false" c_sel_s="false" c_sel_f="false"
     
-    local header_title=" File "
-    local header_text=""
-    local header_align="center"
-    local header_border="rounded"
-    local header_type="Info"
-    local header_max_width=0
-    local header_show_preffix=false
-    local header_transmit_color=""
-    local header_preffix_pad="0 0"
-
-    local c_h_title_fg=""
-    local c_h_title_bg=""
-    local c_h_text_fg="2" 
-    local c_h_text_bg=""
-    local c_h_border_fg="244"
-    local c_h_preffix_fg=""
-    local c_h_preffix_bg=""
-    
-    local h_bold=false
-    local h_italic=false
-    local h_underline=false
-    local h_strike=false
-
-    local c_path_fg=""
-    local c_path_bg=""
-    local path_bold=false
-    local path_underline=false
-
-    local TEMP_CACHE
-    TEMP_CACHE=$(mktemp) || return 1
+    local c_socket_fg="" c_socket_bg="" c_socket_b="false" c_socket_i="false" c_socket_u="false" c_socket_s="false" c_socket_f="false"
+    local c_pipe_fg="" c_pipe_bg="" c_pipe_b="false" c_pipe_i="false" c_pipe_u="false" c_pipe_s="false" c_pipe_f="false"
+    local c_block_fg="" c_block_bg="" c_block_b="false" c_block_i="false" c_block_u="false" c_block_s="false" c_block_f="false"
+    local c_char_fg="" c_char_bg="" c_char_b="false" c_char_i="false" c_char_u="false" c_char_s="false" c_char_f="false"
+    local c_setuid_fg="" c_setuid_bg="" c_setuid_b="false" c_setuid_i="false" c_setuid_u="false" c_setuid_s="false" c_setuid_f="false"
+    local c_sticky_fg="" c_sticky_bg="" c_sticky_b="false" c_sticky_i="false" c_sticky_u="false" c_sticky_s="false" c_sticky_f="false"
 
     function show_help_panel() {
         cat <<EOF
 Usage: bash-utils file [<path>] [flags]
 
-Pick a file from a folder.
+Pick a file from a folder
 
 Arguments:
   [<path>]    The path to the folder to begin traversing
 
 Flags:
-  -h, --help                Show context-sensitive help.
+  -h, --help                Show help.
   -c, --cursor=">"          The cursor character
   -a, --all                 Show hidden and 'dot' files
   -p, --[no-]permissions    Show file permissions
   -s, --[no-]size           Show file size
-      --height=10           Maximum number of files to display
-      --no-header           Hide the header box
-      --padding="0 0"       Padding (Horizontal)
+      --file                Allow files selection (default: true)
+      --directory           Allow directories selection
+      --[no-]show-help      Show help key binds
+      --timeout=0s          Timeout until command aborts (integer)
+      --height=10           Maximum number of files to display (integer > 0)
+      --returns="path"      Strictly: 'path', 'dir', 'json', or 'raw'
+      --icons="lsd"         Strictly: 'never', 'lsd', or 'eza'
+      --padding="0 0 0 0"   Padding around the list (top right bottom left)
 
-Header Options (Messagebox Integration):
-      --header.title="File"        Title text
-      --header.text=""             Custom message (%{PATH}% for current path)
-      --header.border="rounded"    Border style (rounded, normal, double, thick, hidden)
-      --header.type="Info"         Type (Info, Warning, Error, Hint)
-      --header.show-preffix        Show the icon prefix (Hidden by default)
-      --header.title.align         Title alignment (left, center, right)
-      --header.title.transmit-color Sync colors (title to preffix / preffix to title)
-      --header.preffix.pad="0 0"   Padding for the icon
-      --header.max-width=0         Max width (0=Full)
-
-Style Flags (Foreground/Background 0-255):
-  --cursor.foreground / .background
-  --symlink.foreground / .background
-  --directory.foreground / .background
-  --file.foreground / .background
-  --permissions.foreground / .background
-  --selected.foreground / .background
-  --file-size.foreground / .background
+Style Flags (Colors accept a name (incl. CSS names like 'coral'), #HEX, or 0-255):
+  --cursor.foreground         --cursor.background         --cursor.[bold|italic|underline|strikethrough|faint]
+  --directory.foreground      --directory.background      --directory.[bold|italic|underline|strikethrough|faint]
+  --file.foreground           --file.background           --file.[bold|italic|underline|strikethrough|faint]
+  --file-executable.foreground --file-executable.background --file-executable.[bold|italic|underline|strikethrough|faint]
+  --symlink.foreground        --symlink.background        --symlink.[bold|italic|underline|strikethrough|faint]
+  --permissions.foreground    --permissions.background    --permissions.[bold|italic|underline|strikethrough|faint]
+  --file-size.foreground      --file-size.background      --file-size.[bold|italic|underline|strikethrough|faint]
+  --selected.foreground       --selected.background       --selected.[bold|italic|underline|strikethrough|faint]
   
-  --header.title.foreground / .background
-  --header.text.foreground / .background
-  --header.border.foreground
-  --header.preffix.foreground / .background
-  --header.bold, .italic, .underline, .strike
+  --socket.foreground         --socket.background         --socket.[bold|italic|underline|strikethrough|faint]
+  --pipe.foreground           --pipe.background           --pipe.[bold|italic|underline|strikethrough|faint]
+  --block.foreground          --block.background          --block.[bold|italic|underline|strikethrough|faint]
+  --character.foreground      --character.background      --character.[bold|italic|underline|strikethrough|faint]
+  --setuid.foreground         --setuid.background         --setuid.[bold|italic|underline|strikethrough|faint]
+  --sticky.foreground         --sticky.background         --sticky.[bold|italic|underline|strikethrough|faint]
 
-Path Styles (Inside Header):
-  --path.foreground="4"
-  --path.background=""
-  --path.bold
-  --path.underline
+  --permissions.custom="read.fg=green,read.bold,socket.fg=212,sticky=magenta,setuid=yellow,exec=red"
 EOF
     }
 
     local args_pos=()
-    local parse_args=()
     
     while [[ $# -gt 0 ]]; do
-        if [[ "$1" == --*=* ]]; then
-            local key="${1%%=*}"; local val="${1#*=}"; parse_args+=("$key" "$val")
-        else
-            parse_args+=("$1")
+        local key="$1"
+        local val=""
+        local has_val="false"
+
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            has_val="true"
         fi
-        shift
-    done
-    set -- "${parse_args[@]}"
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help) show_help_panel; rm -f "$TEMP_CACHE"; return 0 ;;
-            -a|--all) show_all=true ;;
-            -p|--permissions) show_perms=true ;;
-            --no-permissions) show_perms=false ;;
-            -s|--size) show_size=true ;;
-            --no-size) show_size=false ;;
-            --no-header) show_header=false ;;
-            --no-show-help) show_help_footer=false ;;
+        if [[ "$key" =~ ^--(cursor|symlink|directory|file|file-executable|permissions|selected|file-size|socket|pipe|block|character|setuid|sticky)\.(foreground|background|bold|italic|underline|strikethrough|faint|bg|fg|b|i|u|strike|f)$ ]]; then
+            local comp="${BASH_REMATCH[1]}"
+            local prop="${BASH_REMATCH[2]}"
             
-            --path.bold) path_bold=true ;;
-            --path.underline) path_underline=true ;;
-            
-            --header.show-preffix) header_show_preffix=true ;;
-            --header.bold) h_bold=true ;;
-            --header.italic) h_italic=true ;;
-            --header.underline) h_underline=true ;;
-            --header.strike) h_strike=true ;;
+            [[ "$comp" == "file-executable" ]] && comp="exec"
+            [[ "$comp" == "file-size" ]] && comp="size"
+            [[ "$comp" == "permissions" ]] && comp="perm"
+            [[ "$comp" == "selected" ]] && comp="sel"
+            [[ "$comp" == "directory" ]] && comp="dir"
+            [[ "$comp" == "character" ]] && comp="char"
 
-            --path|--cursor|-c|--height|--header|--header.text|--header.title|--header.border|--header.title.align|--padding| \
-            --header.type|--header.max-width|--header.title.transmit-color|--header.preffix.pad| \
-            --cursor.foreground|--cursor.background|--symlink.foreground|--symlink.background|--directory.foreground|--directory.background| \
-            --file.foreground|--file.background|--permissions.foreground|--permissions.background|--selected.foreground|--selected.background| \
-            --file-size.foreground|--file-size.background|--header.title.foreground|--header.title.background| \
-            --header.text.foreground|--header.text.background|--header.border.foreground|--header.preffix.foreground|--header.preffix.background| \
-            --path.foreground|--path.background)
-                if [[ $# -lt 2 ]]; then die "Flag '$1' requires an argument."; return 1; fi
-                local val="$2"
-                case "$1" in
-                    --path) current_path="$val" ;;
-                    --cursor|-c) cursor="$val" ;;
-                    --height) max_rows="$val" ;;
-                    
-                    --header|--header.text) header_text="$val" ;;
-                    --header.title) header_title="$val" ;;
-                    --header.border) 
-                        [[ ! "$val" =~ ^(rounded|normal|double|thick|hidden)$ ]] && die "Invalid border: $val"
-                        header_border="$val" ;;
-                    --header.title.align) 
-                        [[ ! "$val" =~ ^(left|center|right)$ ]] && die "Invalid align: $val"
-                        header_align="$val" ;;
-                    --header.type) 
-                        [[ ! "$val" =~ ^(Info|Warning|Error|Hint)$ ]] && die "Invalid type: $val"
-                        header_type="$val" ;;
-                    --header.max-width) header_max_width="$val" ;;
-                    --header.title.transmit-color) header_transmit_color="$val" ;;
-                    --header.preffix.pad) header_preffix_pad="$val" ;;
-                    
-                    --padding) 
-                        if [[ "$val" =~ [0-9]+\ +([0-9]+) ]]; then padding_h="${BASH_REMATCH[1]}";
-                        elif [[ "$val" =~ ^[0-9]+$ ]]; then padding_h="$val"; fi ;;
+            if [[ "$prop" =~ ^(bold|b|italic|i|underline|u|strikethrough|strike|faint|f)$ ]]; then
+                if [[ -z "$val" && "$has_val" == "false" ]]; then
+                    if [[ $# -ge 2 && ! "$2" == --* ]]; then
+                        val=$(strict_bool "$2")
+                        [[ "$val" == "INVALID" ]] && die "El valor booleano para '${key}' es inválido.\n  Recibido: '$2'\n  Opciones Literales: true, false, 1, 0, yes, no."
+                        shift
+                    else
+                        val="true"
+                    fi
+                else
+                    local test_val=$(strict_bool "$val")
+                    [[ "$test_val" == "INVALID" ]] && die "El valor booleano para '${key}' es inválido.\n  Recibido: '${val}'\n  Opciones Literales: true, false, 1, 0, yes, no."
+                    val="$test_val"
+                fi
+                eval "c_${comp}_${prop:0:1}=\"${val}\""
+            else
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then 
+                        die "La propiedad de color '${key}' requiere un valor.\n  Ejemplo: ${key}=#ff0000 o ${key}=red"
+                    fi
+                    val="$2"; shift
+                fi 
+                
+                if ! is_valid_color "$val"; then
+                    die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                fi
 
-                    --cursor.foreground)    c_cursor_fg="$val" ;;
-                    --cursor.background)    c_cursor_bg="$val" ;;
-                    --symlink.foreground)   c_symlink_fg="$val" ;;
-                    --symlink.background)   c_symlink_bg="$val" ;;
-                    --directory.foreground) c_dir_fg="$val" ;;
-                    --directory.background) c_dir_bg="$val" ;;
-                    --file.foreground)      c_file_fg="$val" ;;
-                    --file.background)      c_file_bg="$val" ;;
-                    --permissions.foreground) c_perm_fg="$val" ;;
-                    --permissions.background) c_perm_bg="$val" ;;
-                    --selected.foreground)  c_sel_fg="$val" ;;
-                    --selected.background)  c_sel_bg="$val" ;;
-                    --file-size.foreground) c_size_fg="$val" ;;
-                    --file-size.background) c_size_bg="$val" ;;
-                    
-                    --header.title.foreground) c_h_title_fg="$val" ;;
-                    --header.title.background) c_h_title_bg="$val" ;; 
-                    --header.text.foreground)  c_h_text_fg="$val" ;;
-                    --header.text.background)  c_h_text_bg="$val" ;;
-                    --header.border.foreground) c_h_border_fg="$val" ;;
-                    --header.preffix.foreground) c_h_preffix_fg="$val" ;;
-                    --header.preffix.background) c_h_preffix_bg="$val" ;;
-                    
-                    --path.foreground) c_path_fg="$val" ;;
-                    --path.background) c_path_bg="$val" ;;
+                case "$prop" in
+                    foreground|fg) eval "c_${comp}_fg=\"${val}\"" ;;
+                    background|bg) eval "c_${comp}_bg=\"${val}\"" ;;
                 esac
-                shift ;; 
+            fi
+            shift; continue
+        fi
+
+        case "$key" in
+            -h|--help) show_help_panel; return 0 ;;
+            -a|--all) show_all=true; shift; continue ;;
+            -p|--permissions) show_perms=true; shift; continue ;;
+            --no-permissions) show_perms=false; shift; continue ;;
+            -s|--size) show_size=true; shift; continue ;;
+            --no-size) show_size=false; shift; continue ;;
+            --no-show-help) show_help_footer=false; shift; continue ;;
+            --show-help) show_help_footer=true; shift; continue ;;
+            --file) allow_file=true; shift; continue ;;
+            --directory) allow_directory=true; shift; continue ;;
             
-            -*) die "Unknown flag: $1"; return 1 ;;
-            *) args_pos+=("$1") ;;
+            -c|--cursor|--height|--timeout|--padding|--permissions.custom|--returns|--icons)
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then 
+                        die "Al argumento '${key}' le falta su valor asignado."
+                    fi
+                    val="$2"; shift 2
+                else
+                    shift
+                fi
+                
+                case "$key" in
+                    -c|--cursor)  
+                        [[ -z "$val" ]] && die "El valor de '--cursor' no puede ser un string vacío."
+                        cursor="$val" 
+                        ;;
+                    --height) 
+                        [[ ! "$val" =~ ^[1-9][0-9]*$ ]] && die "El valor para '--height' es inválido.\n  Recibido: '${val}'\n  Tipo Literal: Entero positivo (ej. 10, 15)."
+                        height="$val" 
+                        ;;
+                    --timeout) 
+                        val="${val%s}"
+                        [[ ! "$val" =~ ^[0-9]+$ ]] && die "El valor para '--timeout' es inválido.\n  Recibido: '${val}'\n  Tipo Literal: Entero mayor o igual a 0."
+                        timeout="$val" 
+                        ;;
+                    --padding) 
+                        [[ ! "$val" =~ ^[0-9]+([[:space:]]+[0-9]+){0,3}$ ]] && die "El padding es inválido.\n  Recibido: '${val}'\n  Tipo Literal: De 1 a 4 números separados por espacios (ej. '0 1 0 1')."
+                        padding="$val" 
+                        ;;
+                    --returns) 
+                        case "${val,,}" in
+                            path|dir|json|raw) returns="${val,,}" ;;
+                            *) die "El valor para '--returns' es incorrecto.\n  Recibido: '${val}'\n  Opciones Literales: path, dir, json, raw." ;;
+                        esac
+                        ;;
+                    --icons)
+                        case "${val,,}" in
+                            never|lsd|eza) icons_mode="${val,,}" ;;
+                            *) die "El valor para '--icons' es inválido.\n  Recibido: '${val}'\n  Opciones Literales: never, lsd, eza." ;;
+                        esac
+                        ;;
+                    --permissions.custom)  
+                        perm_custom="$val" 
+                        ;;
+                esac
+                ;;
+            
+            --*) die "Bandera desconocida o no soportada.\n  Recibido: '${key}'\n  Usa '--help' para ver la lista de banderas disponibles." ;;
+            *) args_pos+=("$key"); shift ;;
         esac
-        shift 
     done
 
     [[ ${#args_pos[@]} -gt 0 ]] && current_path="${args_pos[0]}"
+    timeout="${timeout%s}"
 
-    local style_cursor=$(make_ansi "$c_cursor_fg" "$c_cursor_bg")
-    local style_dir=$(make_ansi "$c_dir_fg" "$c_dir_bg")
-    local style_file=$(make_ansi "$c_file_fg" "$c_file_bg")
-    local style_link=$(make_ansi "$c_symlink_fg" "$c_symlink_bg")
-    local style_perm=$(make_ansi "$c_perm_fg" "$c_perm_bg")
-    local style_size=$(make_ansi "$c_size_fg" "$c_size_bg")
-    local style_sel=$(make_ansi "$c_sel_fg" "$c_sel_bg")
+    if [[ -n "$perm_custom" ]]; then
+        c_perm_fg=""; c_perm_bg=""
+    fi
+
+    local s_cursor=$(build_style "$c_cursor_fg" "$c_cursor_bg" "$c_cursor_b" "$c_cursor_i" "$c_cursor_u" "$c_cursor_s" "$c_cursor_f")
+    local s_dir=$(build_style "$c_dir_fg" "$c_dir_bg" "$c_dir_b" "$c_dir_i" "$c_dir_u" "$c_dir_s" "$c_dir_f")
+    local s_file=$(build_style "$c_file_fg" "$c_file_bg" "$c_file_b" "$c_file_i" "$c_file_u" "$c_file_s" "$c_file_f")
+    local s_exec=$(build_style "$c_exec_fg" "$c_exec_bg" "$c_exec_b" "$c_exec_i" "$c_exec_u" "$c_exec_s" "$c_exec_f")
+    local s_link=$(build_style "$c_symlink_fg" "$c_symlink_bg" "$c_symlink_b" "$c_symlink_i" "$c_symlink_u" "$c_symlink_s" "$c_symlink_f")
+    local s_perm_base=$(build_style "$c_perm_fg" "$c_perm_bg" "$c_perm_b" "$c_perm_i" "$c_perm_u" "$c_perm_s" "$c_perm_f")
+    local s_size=$(build_style "$c_size_fg" "$c_size_bg" "$c_size_b" "$c_size_i" "$c_size_u" "$c_size_s" "$c_size_f")
+    local s_sel=$(build_style "$c_sel_fg" "$c_sel_bg" "$c_sel_b" "$c_sel_i" "$c_sel_u" "$c_sel_s" "$c_sel_f")
     
-    local col_reset=$'\033[0m'
-    local col_msg=$'\033[38;2;95;95;95m' 
+    local s_socket=$(build_style "$c_socket_fg" "$c_socket_bg" "$c_socket_b" "$c_socket_i" "$c_socket_u" "$c_socket_s" "$c_socket_f")
+    local s_pipe=$(build_style "$c_pipe_fg" "$c_pipe_bg" "$c_pipe_b" "$c_pipe_i" "$c_pipe_u" "$c_pipe_s" "$c_pipe_f")
+    local s_block=$(build_style "$c_block_fg" "$c_block_bg" "$c_block_b" "$c_block_i" "$c_block_u" "$c_block_s" "$c_block_f")
+    local s_char=$(build_style "$c_char_fg" "$c_char_bg" "$c_char_b" "$c_char_i" "$c_char_u" "$c_char_s" "$c_char_f")
+    
+    local s_setuid=$(build_style "$c_setuid_fg" "$c_setuid_bg" "$c_setuid_b" "$c_setuid_i" "$c_setuid_u" "$c_setuid_s" "$c_setuid_f")
+    local s_sticky=$(build_style "$c_sticky_fg" "$c_sticky_bg" "$c_sticky_b" "$c_sticky_i" "$c_sticky_u" "$c_sticky_s" "$c_sticky_f")
+
+    local p_read="" p_write="" p_exec="" p_dir="" p_none="" p_link="" p_socket="" p_pipe="" 
+    local p_block="" p_char="" p_door="" p_sticky="" p_sticky_none="" p_setuid="" p_setuid_none="" p_extended="" p_file=""
+    
+    if [[ -n "$perm_custom" ]]; then
+        for t in read write exec dir none link socket pipe block char door sticky sticky_none setuid setuid_none extended file; do
+            printf -v "p_${t}_fg" ""
+            printf -v "p_${t}_bg" ""
+            printf -v "p_${t}_b" "false"
+            printf -v "p_${t}_i" "false"
+            printf -v "p_${t}_u" "false"
+            printf -v "p_${t}_s" "false"
+            printf -v "p_${t}_f" "false"
+        done
+
+        local old_ifs=$IFS
+        IFS=',' read -ra perm_parts <<< "$perm_custom"
+        IFS=$old_ifs
+        
+        for part in "${perm_parts[@]}"; do
+            [[ -z "$part" ]] && continue
+            local k="${part%%=*}"; local v="${part#*=}"
+            local type="${k%%.*}"; local prop="${k#*.}"
+
+            case "$type" in
+                read|write|exec|dir|none|link|socket|pipe|block|char|door|sticky|sticky_none|setuid|setuid_none|extended|file) ;;
+                *) die "Target inválido en --permissions.custom.\n  Recibido: '${type}'\n  Opciones: read, write, exec, dir, none, link, socket, pipe, block, char, door, sticky, sticky_none, setuid, setuid_none, extended, file." ;;
+            esac
+
+            if [[ "$k" == "$part" ]]; then
+                if [[ "$type" == "$prop" ]]; then die "Falta asignación de valor para el target '${type}' en --permissions.custom.\n  Ejemplo de corrección: ${type}=green o ${type}.bold"; else v="true"; fi
+            else
+                [[ "$type" == "$prop" ]] && prop="foreground"
+            fi
+
+            case "$prop" in
+                foreground|fg|background|bg)
+                    if ! is_valid_color "$v"; then die "Color inválido recibido: '${v}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"; fi
+                    [[ "$prop" == "foreground" || "$prop" == "fg" ]] && printf -v "p_${type}_fg" "%s" "$v"
+                    [[ "$prop" == "background" || "$prop" == "bg" ]] && printf -v "p_${type}_bg" "%s" "$v"
+                    ;;
+                bold|b|italic|i|underline|u|strikethrough|strike|faint|f)
+                    local test_bool=$(strict_bool "$v")
+                    if [[ "$test_bool" == "INVALID" ]]; then die "Valor booleano inválido para '${type}.${prop}' en --permissions.custom.\n  Recibido: '${v}'\n  Opciones Literales: true, false, 1, 0, yes, no."; fi
+                    [[ "$prop" == "bold" || "$prop" == "b" ]] && printf -v "p_${type}_b" "%s" "$test_bool"
+                    [[ "$prop" == "italic" || "$prop" == "i" ]] && printf -v "p_${type}_i" "%s" "$test_bool"
+                    [[ "$prop" == "underline" || "$prop" == "u" ]] && printf -v "p_${type}_u" "%s" "$test_bool"
+                    [[ "$prop" == "strikethrough" || "$prop" == "strike" ]] && printf -v "p_${type}_s" "%s" "$test_bool"
+                    [[ "$prop" == "faint" || "$prop" == "f" ]] && printf -v "p_${type}_f" "%s" "$test_bool"
+                    ;;
+                *) die "Propiedad de estilo inválida para el target '${type}' en --permissions.custom.\n  Recibido: '${prop}'\n  Opciones Literales: fg, bg, bold, italic, underline, strike, faint." ;;
+            esac
+        done
+
+        p_read=$(build_style "$p_read_fg" "$p_read_bg" "$p_read_b" "$p_read_i" "$p_read_u" "$p_read_s" "$p_read_f")
+        p_write=$(build_style "$p_write_fg" "$p_write_bg" "$p_write_b" "$p_write_i" "$p_write_u" "$p_write_s" "$p_write_f")
+        p_exec=$(build_style "$p_exec_fg" "$p_exec_bg" "$p_exec_b" "$p_exec_i" "$p_exec_u" "$p_exec_s" "$p_exec_f")
+        p_dir=$(build_style "$p_dir_fg" "$p_dir_bg" "$p_dir_b" "$p_dir_i" "$p_dir_u" "$p_dir_s" "$p_dir_f")
+        p_none=$(build_style "$p_none_fg" "$p_none_bg" "$p_none_b" "$p_none_i" "$p_none_u" "$p_none_s" "$p_none_f")
+        p_link=$(build_style "$p_link_fg" "$p_link_bg" "$p_link_b" "$p_link_i" "$p_link_u" "$p_link_s" "$p_link_f")
+        p_socket=$(build_style "$p_socket_fg" "$p_socket_bg" "$p_socket_b" "$p_socket_i" "$p_socket_u" "$p_socket_s" "$p_socket_f")
+        p_pipe=$(build_style "$p_pipe_fg" "$p_pipe_bg" "$p_pipe_b" "$p_pipe_i" "$p_pipe_u" "$p_pipe_s" "$p_pipe_f")
+        p_block=$(build_style "$p_block_fg" "$p_block_bg" "$p_block_b" "$p_block_i" "$p_block_u" "$p_block_s" "$p_block_f")
+        p_char=$(build_style "$p_char_fg" "$p_char_bg" "$p_char_b" "$p_char_i" "$p_char_u" "$p_char_s" "$p_char_f")
+        p_door=$(build_style "$p_door_fg" "$p_door_bg" "$p_door_b" "$p_door_i" "$p_door_u" "$p_door_s" "$p_door_f")
+        p_sticky=$(build_style "$p_sticky_fg" "$p_sticky_bg" "$p_sticky_b" "$p_sticky_i" "$p_sticky_u" "$p_sticky_s" "$p_sticky_f")
+        p_sticky_none=$(build_style "$p_sticky_none_fg" "$p_sticky_none_bg" "$p_sticky_none_b" "$p_sticky_none_i" "$p_sticky_none_u" "$p_sticky_none_s" "$p_sticky_none_f")
+        p_setuid=$(build_style "$p_setuid_fg" "$p_setuid_bg" "$p_setuid_b" "$p_setuid_i" "$p_setuid_u" "$p_setuid_s" "$p_setuid_f")
+        p_setuid_none=$(build_style "$p_setuid_none_fg" "$p_setuid_none_bg" "$p_setuid_none_b" "$p_setuid_none_i" "$p_setuid_none_u" "$p_setuid_none_s" "$p_setuid_none_f")
+        p_extended=$(build_style "$p_extended_fg" "$p_extended_bg" "$p_extended_b" "$p_extended_i" "$p_extended_u" "$p_extended_s" "$p_extended_f")
+        p_file=$(build_style "$p_file_fg" "$p_file_bg" "$p_file_b" "$p_file_i" "$p_file_u" "$p_file_s" "$p_file_f")
+    fi
+
+    local pad_t=0 pad_r=0 pad_b=0 pad_l=0
+    read -ra _pv <<< "$padding"
+    case "${#_pv[@]}" in
+        1) pad_t="${_pv[0]}"; pad_r="${_pv[0]}"; pad_b="${_pv[0]}"; pad_l="${_pv[0]}" ;;
+        2) pad_t="${_pv[0]}"; pad_b="${_pv[0]}"; pad_r="${_pv[1]}"; pad_l="${_pv[1]}" ;;
+        3) pad_t="${_pv[0]}"; pad_r="${_pv[1]}"; pad_l="${_pv[1]}"; pad_b="${_pv[2]}" ;;
+        4) pad_t="${_pv[0]}"; pad_r="${_pv[1]}"; pad_b="${_pv[2]}"; pad_l="${_pv[3]}" ;;
+    esac
+    local pad_indent=""
+    for (( _p=0; _p<pad_l; _p++ )); do pad_indent+=" "; done
+
+    local col_reset="${ESC}[0m"
+    local col_msg="${ESC}[38;2;95;95;95m" 
 
     current_path=$(cd "$current_path" 2>/dev/null && pwd)
     [[ -z "$current_path" ]] && current_path="$PWD"
 
-    trap 'rm -f "$TEMP_CACHE"; echo -ne "\033[?25h"' EXIT
-    echo -ne "\033[?25l" >&2 
+    local footer_lines=0
+    [[ "$show_help_footer" == "true" ]] && footer_lines=1
+    local total_lines=$(( pad_t + height + footer_lines + pad_b ))
+
+    local alloc_str=""
+    for ((i=0; i<total_lines; i++)); do alloc_str+="${NL}"; done
+    echo -ne "${alloc_str}${ESC}[${total_lines}A" >&2
+
+    local stty_orig
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon < /dev/tty 2>/dev/null
+
+    local _interrupted=0
+    local needs_redraw=true
+
+    trap '_interrupted=1' SIGINT TERM
+    trap 'needs_redraw=true' SIGWINCH
+
+    function cleanup() {
+        while read -rsn1 -t 0.05 _trash < /dev/tty 2>/dev/null; do :; done
+        if [[ -n "$stty_orig" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        tput cnorm >&2
+        echo -ne "${ESC}[?7h${ESC}[?1000l${ESC}[?1002l${ESC}[?1006l" >&2
+    }
+
+    function clear_menu() {
+        if (( total_lines > 0 )); then
+            local clear_frame=""
+            for ((k=0; k<total_lines; k++)); do clear_frame+="${ESC}[K${NL}"; done
+            echo -ne "${clear_frame}${ESC}[${total_lines}A" >&2
+        fi
+    }
+
+    echo -ne "${ESC}[?7l" >&2
+    tput civis >&2 
+
+    local script_dir="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
+    local icon_db_path=""
+    local icon_dir_fallback=""
+    
+    if [[ "$icons_mode" != "never" ]]; then
+        local target_tsv="icons_lsd.tsv"
+        [[ "$icons_mode" == "eza" ]] && target_tsv="icons_eza.tsv"
+        
+        icon_db_path="$script_dir/icons/$target_tsv"
+        if [[ ! -f "$icon_db_path" ]]; then
+            icon_db_path="$(dirname "$script_dir")/icons/$target_tsv"
+        fi
+
+        if [[ -f "$icon_db_path" ]]; then
+            icon_dir_fallback=$(awk '$1=="type" && $2=="dir" {print $3; exit}' "$icon_db_path")
+        fi
+    fi
 
     local last_path=""
     local selected_index=0
     local scroll_offset=0
     local total_files=0
-    local cached_header=""
     local max_size_len=0
-    local pad_str=""
-    if (( padding_h > 0 )); then printf -v pad_str "%*s" "$padding_h" ""; fi
+    
+    local files_info=()
+
+    function load_directory() {
+        files_info=()
+        total_files=0
+        max_size_len=1
+
+        if [[ "$current_path" != "/" ]]; then
+            local colored_perm=""
+            for ch in d r w x r - x r - x; do
+                case "$ch" in
+                    d) [[ -n "$p_dir" ]] && colored_perm+="${p_dir}d${col_reset}${s_perm_base}" || colored_perm+="d" ;;
+                    r) [[ -n "$p_read" ]] && colored_perm+="${p_read}r${col_reset}${s_perm_base}" || colored_perm+="r" ;;
+                    w) [[ -n "$p_write" ]] && colored_perm+="${p_write}w${col_reset}${s_perm_base}" || colored_perm+="w" ;;
+                    x) [[ -n "$p_exec" ]] && colored_perm+="${p_exec}x${col_reset}${s_perm_base}" || colored_perm+="x" ;;
+                    -) [[ -n "$p_none" ]] && colored_perm+="${p_none}-${col_reset}${s_perm_base}" || colored_perm+="-" ;;
+                esac
+            done
+            local final_perm="${s_perm_base}${colored_perm}${col_reset}"
+            files_info+=("${final_perm}${DELIM}-${DELIM}DIR${DELIM}${icon_dir_fallback}${DELIM}..")
+            total_files=1
+        fi
+        
+        local ls_opts=( "-l" "--group-directories-first" "--time-style=long-iso" "-h" "--color=never" )
+        [[ "$show_all" == "true" ]] && ls_opts+=( "-A" )
+        
+        local load_count=0
+
+        while IFS="$DELIM" read -r perm size type icon name; do
+            files_info+=("$perm$DELIM$size$DELIM$type$DELIM$icon$DELIM$name")
+            
+            (( ${#size} > max_size_len )) && max_size_len=${#size}
+            ((total_files++))
+            ((load_count++))
+
+            if (( load_count % 30 == 0 )); then draw; fi
+
+        done < <(LC_ALL=C command ls "${ls_opts[@]}" "$current_path" 2>/dev/null | awk \
+            -v CREAD="$p_read" -v CWRITE="$p_write" -v CEXEC="$p_exec" \
+            -v CDIR="$p_dir" -v CNONE="$p_none" -v CLINK="$p_link" -v CSOCK="$p_socket" \
+            -v CPIPE="$p_pipe" -v CBLK="$p_block" -v CCHAR="$p_char" -v CDOOR="$p_door" \
+            -v CSTICKY="$p_sticky" -v CSTICKY_NONE="$p_sticky_none" \
+            -v CSETUID="$p_setuid" -v CSETUID_NONE="$p_setuid_none" \
+            -v CEXT="$p_extended" -v CFILE="$p_file" \
+            -v CBASE="$s_perm_base" -v RESET="$col_reset" \
+            -v ICON_TSV="$icon_db_path" -v ICONS_MODE="$icons_mode" '
+            BEGIN {
+                if (ICONS_MODE != "never" && ICON_TSV != "") {
+                    while ((getline line < ICON_TSV) > 0) {
+                        sub(/\r$/, "", line)
+                        split(line, arr, /[ \t]+/) 
+                        if (arr[1] == "type") t[arr[2]] = arr[3]
+                        else if (arr[1] == "name") n[arr[2]] = arr[3]
+                        else if (arr[1] == "ext") e[arr[2]] = arr[3]
+                    }
+                    close(ICON_TSV)
+                }
+            }
+            /^total/ { next }
+            {
+                p_str = $1
+                c = substr(p_str,1,1)
+                
+                if (c == "d") {
+                    if (substr(p_str,4,1)=="s" || substr(p_str,4,1)=="S" || substr(p_str,7,1)=="s" || substr(p_str,7,1)=="S") type="SETUID_DIR"
+                    else if (substr(p_str,10,1)=="t" || substr(p_str,10,1)=="T") type="STICKY_DIR"
+                    else type="DIR"
+                }
+                else if (c == "l") type="LINK"
+                else if (c == "s") type="SOCKET"
+                else if (c == "p") type="PIPE"
+                else if (c == "b") type="BLOCK"
+                else if (c == "c") type="CHAR"
+                else if (c == "-") {
+                    if (substr(p_str,4,1)=="s" || substr(p_str,4,1)=="S" || substr(p_str,7,1)=="s" || substr(p_str,7,1)=="S") type="SETUID"
+                    else if (substr(p_str,10,1)=="t" || substr(p_str,10,1)=="T") type="STICKY"
+                    else if (substr(p_str,4,1)=="x" || substr(p_str,7,1)=="x" || substr(p_str,10,1)=="x") type="EXEC"
+                    else type="FILE"
+                }
+                else type="FILE"
+
+                colored_perm = ""
+                for (j=1; j<=length(p_str); j++) {
+                    ch = substr(p_str, j, 1)
+                    
+                    if (j == 1) {
+                        display_ch = ch
+                        if (ch == "p") display_ch = "|"
+                        
+                        if (ch == "d" && CDIR != "") colored_perm = colored_perm CDIR display_ch RESET CBASE
+                        else if (ch == "l" && CLINK != "") colored_perm = colored_perm CLINK display_ch RESET CBASE
+                        else if (ch == "s" && CSOCK != "") colored_perm = colored_perm CSOCK display_ch RESET CBASE
+                        else if (ch == "p" && CPIPE != "") colored_perm = colored_perm CPIPE display_ch RESET CBASE
+                        else if (ch == "b" && CBLK != "") colored_perm = colored_perm CBLK display_ch RESET CBASE
+                        else if (ch == "c" && CCHAR != "") colored_perm = colored_perm CCHAR display_ch RESET CBASE
+                        else if (ch == "D" && CDOOR != "") colored_perm = colored_perm CDOOR display_ch RESET CBASE
+                        else if (ch == "-" && CFILE != "") colored_perm = colored_perm CFILE display_ch RESET CBASE
+                        else if (ch == "-" && CNONE != "") colored_perm = colored_perm CNONE display_ch RESET CBASE
+                        else colored_perm = colored_perm display_ch
+                    } else {
+                        if (ch == "r" && CREAD != "") colored_perm = colored_perm CREAD ch RESET CBASE
+                        else if (ch == "w" && CWRITE != "") colored_perm = colored_perm CWRITE ch RESET CBASE
+                        else if (ch == "x" && CEXEC != "") colored_perm = colored_perm CEXEC ch RESET CBASE
+                        else if (ch == "s" && CSETUID != "") colored_perm = colored_perm CSETUID ch RESET CBASE
+                        else if (ch == "S" && CSETUID_NONE != "") colored_perm = colored_perm CSETUID_NONE ch RESET CBASE
+                        else if (ch == "t" && CSTICKY != "") colored_perm = colored_perm CSTICKY ch RESET CBASE
+                        else if (ch == "T" && CSTICKY_NONE != "") colored_perm = colored_perm CSTICKY_NONE ch RESET CBASE
+                        else if (ch == "-" && CNONE != "") colored_perm = colored_perm CNONE ch RESET CBASE
+                        else if ((ch == "+" || ch == "." || ch == "@") && CEXT != "") colored_perm = colored_perm CEXT ch RESET CBASE
+                        else colored_perm = colored_perm ch
+                    }
+                }
+                if (colored_perm == "") colored_perm = p_str
+                final_perm = CBASE colored_perm RESET
+
+                if ($5 ~ /,$/) {
+                    size = $5 " " $6
+                    name_start = 9
+                } else {
+                    size = $5
+                    if (size ~ /^[0-9]+$/) {
+                        size = size " B"
+                    } else if (size ~ /^[0-9]+(\.[0-9]+)?[a-zA-Z]$/) {
+                        unit = toupper(substr(size, length(size), 1))
+                        val = substr(size, 1, length(size)-1)
+                        size = val " " unit "B"
+                    }
+                    name_start = 8
+                }
+
+                name = ""
+                for (i=name_start; i<=NF; i++) name = name (i==name_start?"":" ") $i
+                
+                real_name = name
+                if (type == "LINK") {
+                    idx = index(name, " -> ")
+                    if (idx > 0) real_name = substr(name, 1, idx - 1)
+                }
+                
+                icon = ""
+                if (ICONS_MODE != "never") {
+                    lower_name = tolower(real_name)
+                    if (lower_name in n) {
+                        icon = n[lower_name]
+                    } else {
+                        n_ext = split(lower_name, parts, "[.]")
+                        ext = ""
+                        if (n_ext > 1) {
+                            if (parts[1] != "") ext = parts[n_ext]
+                            else if (n_ext > 2) ext = parts[n_ext]
+                        }
+                        if (ext != "" && ext in e) {
+                            icon = e[ext]
+                        }
+                    }
+                    
+                    if (icon == "") {
+                        if (type == "DIR" || type == "SETUID_DIR" || type == "STICKY_DIR") icon = t["dir"]
+                        else if (type == "LINK") icon = t["symlink_file"]
+                        else if (type == "EXEC" || type == "SETUID") icon = t["executable"]
+                        else if (type == "SOCKET") icon = t["socket"]
+                        else if (type == "PIPE") icon = t["pipe"]
+                        else if (type == "BLOCK") icon = t["block"]
+                        else if (type == "CHAR") icon = t["char"]
+                        else icon = t["file"]
+                    }
+                }
+
+                print final_perm "\x1f" size "\x1f" type "\x1f" icon "\x1f" name
+            }
+        ')
+        
+        draw
+    }
+
+    function page_right() {
+        (( selected_index += height ))
+        if (( selected_index >= total_files )); then selected_index=$(( total_files - 1 )); fi
+    }
+
+    function page_left() {
+        (( selected_index -= height ))
+        if (( selected_index < 0 )); then selected_index=0; fi
+    }
+
+    function draw() {
+        if (( selected_index < scroll_offset )); then scroll_offset=$selected_index; fi
+        if (( selected_index >= scroll_offset + height )); then scroll_offset=$(( selected_index - height + 1 )); fi
+        [[ $scroll_offset -lt 0 ]] && scroll_offset=0
+
+        local frame=""
+        for (( _p=0; _p<pad_t; _p++ )); do frame+="${ESC}[K${NL}"; done
+
+        for (( i=0; i<height; i++ )); do
+            local idx=$(( scroll_offset + i ))
+            if (( idx >= total_files )); then
+                frame+="${ESC}[K${NL}"
+                continue
+            fi
+
+            IFS="$DELIM" read -r f_perm f_size f_type f_icon f_name <<< "${files_info[$idx]}"
+            
+            local c_name="$s_file"
+            [[ "$f_type" == "DIR" ]] && c_name="$s_dir"
+            [[ "$f_type" == "LINK" ]] && c_name="$s_link"
+            [[ "$f_type" == "EXEC" ]] && c_name="$s_exec"
+            [[ "$f_type" == "SOCKET" ]] && c_name="$s_socket"
+            [[ "$f_type" == "PIPE" ]] && c_name="$s_pipe"
+            [[ "$f_type" == "BLOCK" ]] && c_name="$s_block"
+            [[ "$f_type" == "CHAR" ]] && c_name="$s_char"
+            [[ "$f_type" == "SETUID" || "$f_type" == "SETUID_DIR" ]] && c_name="$s_setuid"
+            [[ "$f_type" == "STICKY" || "$f_type" == "STICKY_DIR" ]] && c_name="$s_sticky"
+            
+            local c_p=""; local c_s="$s_size"; local c_c="$s_cursor"
+            local char_c=" "
+
+            if (( idx == selected_index )); then
+                c_name="${s_sel}"; c_s="${s_sel}"; c_c="${s_sel}"; c_p="${s_sel}"
+                char_c="$cursor"
+                
+                f_perm=$(strip_ansi "$f_perm")
+                f_size=$(strip_ansi "$f_size")
+                f_name=$(strip_ansi "$f_name")
+            else
+                printf -v char_c "%*s" ${#cursor} ""
+            fi
+
+            local line="${pad_indent}${c_c}${char_c}${col_reset} "
+            if [[ "$show_perms" == "true" ]]; then 
+                if [[ -n "$c_p" ]]; then line+="${c_p}${f_perm}${col_reset} "
+                else line+="${f_perm} "
+                fi
+            fi
+            if [[ "$show_size" == "true" ]]; then 
+                local sp_size; printf -v sp_size "%${max_size_len}s" "$f_size"
+                line+="${c_s}${sp_size}${col_reset} "
+            fi
+            
+            if [[ "$icons_mode" == "never" ]]; then
+                line+="${c_name}${f_name}${col_reset}"
+            else
+                line+="${c_name}${f_icon}  ${f_name}${col_reset}"
+            fi
+            frame+="${line}${ESC}[K${NL}"
+        done
+
+        if [[ "$show_help_footer" == "true" ]]; then
+            frame+="${pad_indent}${col_msg}←/h up • →/l in • enter select • esc cancel${col_reset}${ESC}[K${NL}"
+        fi
+
+        for (( _p=0; _p<pad_b; _p++ )); do frame+="${ESC}[K${NL}"; done
+
+        echo -ne "${frame}${ESC}[${total_lines}A" >&2
+    }
+
+    local start_time=$(date +%s)
 
     while true; do
         if [[ "$current_path" != "$last_path" ]]; then
-            echo -ne "\033[H\033[J" >&2
-            echo -e "${pad_str}${col_msg}[+] Loading files...${col_reset}" >&2
-            
-            last_path="$current_path"
+            clear_menu
             selected_index=0
             scroll_offset=0
-            visible_limit=$initial_limit
-            max_size_len=1
+            load_directory
+            last_path="$current_path"
+            needs_redraw=true
+        fi
 
-            if [[ "$show_header" == "true" ]]; then
-                local visual_path="$current_path"
-                [[ "$visual_path" != "/" ]] && visual_path="${visual_path}/"
-                
-                local use_path_fg="${c_path_fg}"
-                if [[ -z "$use_path_fg" && -z "$header_text" ]]; then
-                    use_path_fg="4" 
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
+        fi
+
+        local read_opts=("-rsn1" "-t" "0.05")
+        
+        if [[ $timeout -gt 0 ]]; then
+            local now=$(date +%s)
+            local remain=$(( timeout - (now - start_time) ))
+            if (( remain <= 0 )); then clear_menu; cleanup; return 124; fi
+        fi
+
+        IFS= read "${read_opts[@]}" key < /dev/tty
+        local _read_status=$?
+
+        if [[ $_interrupted -eq 1 ]]; then
+            clear_menu
+            cleanup
+            return 130
+        fi
+
+        if [[ $_read_status -ne 0 ]]; then 
+            continue
+        fi
+
+        needs_redraw=true
+
+        case "$key" in
+            $'\x03'|$'\x04'|'q') 
+                clear_menu; cleanup; return 130 
+                ;;
+            $'\x1b')
+                read -rsn2 -t 0.05 next_chars < /dev/tty
+                if [[ -z "$next_chars" ]]; then
+                    clear_menu; cleanup; return 1
                 fi
-                
-                local s_path_extra=""
-                [[ "$path_bold" == "true" ]] && s_path_extra+="\033[1m"
-                [[ "$path_underline" == "true" ]] && s_path_extra+="\033[4m"
-                
-                local s_path_col=""
-                [[ -n "$use_path_fg" || -n "$c_path_bg" ]] && s_path_col=$(make_ansi "$use_path_fg" "$c_path_bg")
-                
-                local s_header_base=$(make_ansi "$c_h_text_fg" "$c_h_text_bg")
-                local styled_path="${s_path_extra}${s_path_col}${visual_path}${col_reset}${s_header_base}"
-                
-                local display_msg=""
-                local placeholder_token="%{PATH}%"
-                
-                if [[ -n "$header_text" ]]; then
-                    if [[ "$header_text" == *"$placeholder_token"* ]]; then
-                        display_msg="${header_text//$placeholder_token/$styled_path}"
-                    else
-                        display_msg="${header_text}"
+                case "$next_chars" in
+                    '[A') ((selected_index--)); if ((selected_index < 0)); then selected_index=$((total_files - 1)); fi ;; 
+                    '[B') ((selected_index++)); if ((selected_index >= total_files)); then selected_index=0; fi ;;
+                    '[C') page_right ;;
+                    '[D') page_left ;;
+                    *) clear_menu; cleanup; return 1 ;; 
+                esac
+                ;;
+            'k') ((selected_index--)); if ((selected_index < 0)); then selected_index=$((total_files - 1)); fi ;;
+            'j') ((selected_index++)); if ((selected_index >= total_files)); then selected_index=0; fi ;;
+            'l') 
+                IFS="$DELIM" read -r _ _ f_type _ f_name <<< "${files_info[$selected_index]}"
+                if [[ "$f_type" == "DIR" || "$f_type" == "SETUID_DIR" || "$f_type" == "STICKY_DIR" ]]; then
+                    f_name=$(strip_ansi "$f_name")
+                    if [[ "$f_name" == ".." ]]; then current_path=$(dirname "$current_path")
+                    else [[ "$current_path" == "/" ]] && current_path="/$f_name" || current_path="$current_path/$f_name"
                     fi
-                else
-                    display_msg="Path: ${styled_path}"
                 fi
+                ;;
+            'h') [[ "$current_path" != "/" ]] && current_path=$(dirname "$current_path") ;;
+            ""|$'\x0a'|$'\x0d') 
+                IFS="$DELIM" read -r f_perm f_size f_type _ f_name <<< "${files_info[$selected_index]}"
+                f_perm=$(strip_ansi "$f_perm")
+                f_name=$(strip_ansi "$f_name")
                 
-                local mbox_args=(
-                    --title "$header_title"
-                    --message "$display_msg"
-                    --to-end-tty
-                    --border "$header_border"
-                    --title.align "$header_align"
-                    --type "$header_type"
-                )
-                
-                [[ -n "$c_h_title_fg" ]] && mbox_args+=( --title.foreground "$c_h_title_fg" )
-                [[ -n "$c_h_title_bg" ]] && mbox_args+=( --title.background "$c_h_title_bg" )
-                
-                [[ -n "$c_h_text_fg" ]] && mbox_args+=( --foreground "$c_h_text_fg" )
-                [[ -n "$c_h_text_bg" ]] && mbox_args+=( --background "$c_h_text_bg" )
-                
-                [[ -n "$c_h_border_fg" ]] && mbox_args+=( --border.foreground "$c_h_border_fg" )
-                
-                if [[ "$header_show_preffix" == "false" ]]; then
-                    mbox_args+=( --no-preffix )
+                if [[ "$f_name" == ".." ]]; then
+                    current_path=$(dirname "$current_path")
                 else
-                    [[ -n "$c_h_preffix_fg" ]] && mbox_args+=( --preffix.foreground "$c_h_preffix_fg" )
-                    [[ -n "$c_h_preffix_bg" ]] && mbox_args+=( --preffix.background "$c_h_preffix_bg" )
-                    [[ -n "$header_preffix_pad" ]] && mbox_args+=( --preffix.pad "$header_preffix_pad" )
-                fi
-                
-                [[ -n "$header_transmit_color" ]] && mbox_args+=( --title.transmit-color "$header_transmit_color" )
-                [[ "$header_max_width" -gt 0 ]] && mbox_args+=( --max-width "$header_max_width" )
-                
-                [[ "$h_bold" == "true" ]] && mbox_args+=( --bold )
-                [[ "$h_italic" == "true" ]] && mbox_args+=( --italic )
-                [[ "$h_underline" == "true" ]] && mbox_args+=( --underline )
-                [[ "$h_strike" == "true" ]] && mbox_args+=( --strike )
-
-                cached_header=$(messagebox "${mbox_args[@]}")
-            fi
-
-            local ls_opts=( "-l" "--group-directories-first" "--time-style=+" "-h" "--color=never" )
-            [[ "$show_all" == "true" ]] && ls_opts+=( "-A" )
-
-            : > "$TEMP_CACHE"
-            [[ "$current_path" != "/" ]] && echo -e "drwxr-xr-x\t-\tDIR\t.." >> "$TEMP_CACHE"
-            
-            LC_ALL=C /bin/ls "${ls_opts[@]}" "$current_path" 2>/dev/null | awk '
-                /^total/ { next }
-                {
-                    c = substr($1,1,1)
-                    if(c=="d") type="DIR"; else if(c=="l") type="LINK"; else type="FILE"
-                    name=""; for(i=6;i<=NF;i++) name = name (i==6?"":" ") $i
-                    print $1 "\t" $5 "\t" type "\t" name
-                }
-            ' >> "$TEMP_CACHE"
-
-            total_files=$(wc -l < "$TEMP_CACHE")
-            max_size_len=$(awk -F"\t" '{l=length($2); if(l>m)m=l} END{print m}' "$TEMP_CACHE")
-        fi
-
-        if (( selected_index >= visible_limit - 1 )); then
-             if (( visible_limit < total_files )); then visible_limit=$(( visible_limit + lazy_step )); fi
-        fi
-
-        if (( selected_index < scroll_offset )); then
-            scroll_offset=$selected_index
-        elif (( selected_index >= scroll_offset + max_rows )); then
-            scroll_offset=$(( selected_index - max_rows + 1 ))
-        fi
-
-        echo -ne "\033[H" >&2
-        [[ -n "$cached_header" ]] && echo -e "${cached_header}" >&2
-
-        awk -F"\t" \
-            -v OFFSET="$scroll_offset" \
-            -v HEIGHT="$max_rows" \
-            -v SEL_IDX="$selected_index" \
-            -v LIMIT="$visible_limit" \
-            -v PAD="$pad_str" \
-            -v CURSOR="$cursor" \
-            -v SHOW_PERM="$show_perms" \
-            -v SHOW_SIZE="$show_size" \
-            -v SIZE_W="$max_size_len" \
-            -v S_CUR="$style_cursor" \
-            -v S_DIR="$style_dir" \
-            -v S_FILE="$style_file" \
-            -v S_LINK="$style_link" \
-            -v S_PERM="$style_perm" \
-            -v S_SIZE="$style_size" \
-            -v S_SEL="$style_sel" \
-            -v RESET="$col_reset" \
-            '
-            BEGIN { printed=0 }
-            {
-                idx = NR - 1
-                if (idx >= LIMIT) exit
-                if (idx < OFFSET) next
-                if (printed >= HEIGHT) exit
-
-                perm = $1; size = $2; type = $3; name = $4
-                is_sel = (idx == SEL_IDX)
-                
-                c_name = S_FILE
-                if (type == "DIR") c_name = S_DIR
-                if (type == "LINK") c_name = S_LINK
-                
-                c_perm = S_PERM; c_size = S_SIZE; c_cursor = S_CUR
-                char_cursor = " "
-
-                if (is_sel) {
-                    c_name = S_SEL; c_perm = S_SEL; c_size = S_SEL; c_cursor = S_SEL
-                    char_cursor = CURSOR
-                }
-
-                line = PAD c_cursor char_cursor RESET " "
-                if (SHOW_PERM == "true") line = line c_perm perm RESET " "
-                if (SHOW_SIZE == "true") line = line c_size sprintf("%" SIZE_W "s", size) RESET " "
-                line = line c_name name RESET
-
-                print line "\033[K"
-                printed++
-            }
-            END { while (printed < HEIGHT) { print "\033[K"; printed++ } }
-        ' "$TEMP_CACHE" >&2
-
-        if [[ "$show_help_footer" == "true" ]]; then
-             local shown_count=$visible_limit
-             if (( total_files < visible_limit )); then shown_count=$total_files; fi
-             echo -ne "${pad_str}${col_msg}↓↑ navigate • lazy (${shown_count}/${total_files}) • enter select${col_reset}\033[K\n" >&2
-        fi
-        echo -ne "\033[J" >&2
-
-        read -rsn1 key
-        if [[ $key == $'\x1b' ]]; then
-            read -rsn2 -t 0.01 key
-            case "$key" in
-                '[A') ((selected_index--)); if ((selected_index < 0)); then selected_index=0; fi ;; 
-                '[B') 
-                    ((selected_index++))
-                    local eff_max=$(( visible_limit < total_files ? visible_limit : total_files ))
-                    if (( selected_index >= eff_max )); then selected_index=$((eff_max-1)); fi 
-                    ;;
-                '[D') 
-                     [[ "$current_path" != "/" ]] && current_path=$(dirname "$current_path") ;;
-            esac
-        else
-            case "$key" in
-                "") # Enter
-                    local line_sel=$(sed -n "$((selected_index+1))p" "$TEMP_CACHE")
-                    local f_type=$(echo "$line_sel" | awk -F"\t" '{print $3}')
-                    local f_name=$(echo "$line_sel" | awk -F"\t" '{print $4}')
+                    local target=""
+                    [[ "$current_path" == "/" ]] && target="/$f_name" || target="$current_path/$f_name"
+                    local target_dir=$(dirname "$target")
+                    local out=""
                     
-                    if [[ "$f_name" == ".." ]]; then
-                        current_path=$(dirname "$current_path")
-                    else
-                        local target="$current_path/$f_name"
-                        [[ "$current_path" == "/" ]] && target="/$f_name"
-                        
-                        if [[ "$f_type" == "DIR" ]]; then
-                            current_path="$target"
-                        else
-                            echo -ne "\033[H\033[J" >&2; echo "$target"; return 0
+                    case "$returns" in
+                        path) out="$target" ;;
+                        dir) out="$target_dir" ;;
+                        raw) out="${f_perm}|${f_size}|${f_type}|${f_icon}|${f_name}" ;;
+                        json) 
+                            local esc_target="${target//\"/\\\"}"
+                            local esc_name="${f_name//\"/\\\"}"
+                            out="{\"path\": \"$esc_target\", \"dir\": \"$target_dir\", \"name\": \"$esc_name\", \"type\": \"$f_type\", \"size\": \"$f_size\", \"permissions\": \"$f_perm\"}" 
+                            ;;
+                    esac
+
+                    if [[ "$f_type" == "DIR" || "$f_type" == "SETUID_DIR" || "$f_type" == "STICKY_DIR" ]]; then
+                        if [[ "$allow_directory" == "true" ]]; then clear_menu; cleanup; echo "$out"; return 0
+                        else current_path="$target"
                         fi
+                    else
+                        if [[ "$allow_file" == "true" ]]; then clear_menu; cleanup; echo "$out"; return 0; fi
                     fi
-                    ;;
-                "q") echo -ne "\033[H\033[J" >&2; return 1 ;;
-            esac
-        fi
+                fi
+                ;;
+        esac
     done
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then 
   cmd_file "${@}"
 fi
-

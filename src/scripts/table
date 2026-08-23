@@ -3,39 +3,203 @@
 function cmd_table() {
     local ESC=$'\e'
 
+    function die() {
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
+
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0 
+        local -r ESC_CHAR=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) case "$c" in
+                       "$ESC_CHAR") state=1 ;;
+                       "$BEL") : ;;
+                       *) out+="$c" ;;
+                   esac ;;
+                1) case "$c" in
+                       '[') state=2 ;;
+                       ']') state=3 ;;
+                       '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                       "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>') state=0 ;;
+                       *) out+="${ESC_CHAR}${c}"; state=0 ;;
+                   esac ;;
+                2) case "$c" in
+                       ';'|'?'|[0-9]) : ;;
+                       *) state=0 ;;
+                   esac ;;
+                3) case "$c" in
+                       [0-9]) state=4 ;;
+                       *) state=0 ;;
+                   esac ;;
+                4) case "$c" in
+                       "$BEL") state=0 ;;
+                       "$ESC_CHAR") state=5 ;;
+                   esac ;;
+                5) state=0 ;;
+            esac
+        done
+        printf '%s' "$out"
+    }
+
+    local _CSS_COLORS_INIT=0
+    function _css_init() {
+        [[ $_CSS_COLORS_INIT -eq 1 ]] && return
+        declare -gA _CSS_COLORS=(
+            [aliceblue]=f0f8ff [antiquewhite]=faebd7 [aqua]=00ffff [aquamarine]=7fffd4
+            [azure]=f0ffff [beige]=f5f5dc [bisque]=ffe4c4 [black]=000000
+            [blanchedalmond]=ffebcd [blue]=0000ff [blueviolet]=8a2be2 [brown]=a52a2a
+            [burlywood]=deb887 [cadetblue]=5f9ea0 [chartreuse]=7fff00 [chocolate]=d2691e
+            [coral]=ff7f50 [cornflowerblue]=6495ed [cornsilk]=fff8dc [crimson]=dc143c
+            [cyan]=00ffff [darkblue]=00008b [darkcyan]=008b8b [darkgoldenrod]=b8860b
+            [darkgray]=a9a9a9 [darkgreen]=006400 [darkgrey]=a9a9a9 [darkkhaki]=bdb76b
+            [darkmagenta]=8b008b [darkolivegreen]=556b2f [darkorange]=ff8c00 [darkorchid]=9932cc
+            [darkred]=8b0000 [darksalmon]=e9967a [darkseagreen]=8fbc8f [darkslateblue]=483d8b
+            [darkslategray]=2f4f4f [darkslategrey]=2f4f4f [darkturquoise]=00ced1 [darkviolet]=9400d3
+            [deeppink]=ff1493 [deepskyblue]=00bfff [dimgray]=696969 [dimgrey]=696969
+            [dodgerblue]=1e90ff [firebrick]=b22222 [floralwhite]=fffaf0 [forestgreen]=228b22
+            [fuchsia]=ff00ff [gainsboro]=dcdcdc [ghostwhite]=f8f8ff [gold]=ffd700
+            [goldenrod]=daa520 [gray]=808080 [green]=008000 [greenyellow]=adff2f
+            [grey]=808080 [honeydew]=f0fff0 [hotpink]=ff69b4 [indianred]=cd5c5c
+            [indigo]=4b0082 [ivory]=fffff0 [khaki]=f0e68c [lavender]=e6e6fa
+            [lavenderblush]=fff0f5 [lawngreen]=7cfc00 [lemonchiffon]=fffacd [lightblue]=add8e6
+            [lightcoral]=f08080 [lightcyan]=e0ffff [lightgoldenrodyellow]=fafad2 [lightgray]=d3d3d3
+            [lightgreen]=90ee90 [lightgrey]=d3d3d3 [lightpink]=ffb6c1 [lightsalmon]=ffa07a
+            [lightseagreen]=20b2aa [lightskyblue]=87cefa [lightslategray]=778899 [lightslategrey]=778899
+            [lightsteelblue]=b0c4de [lightyellow]=ffffe0 [lime]=00ff00 [limegreen]=32cd32
+            [linen]=faf0e6 [magenta]=ff00ff [maroon]=800000 [mediumaquamarine]=66cdaa
+            [mediumblue]=0000cd [mediumorchid]=ba55d3 [mediumpurple]=9370db [mediumseagreen]=3cb371
+            [mediumslateblue]=7b68ee [mediumspringgreen]=00fa9a [mediumturquoise]=48d1cc [mediumvioletred]=c71585
+            [midnightblue]=191970 [mintcream]=f5fffa [mistyrose]=ffe4e1 [moccasin]=ffe4b5
+            [navajowhite]=ffdead [navy]=000080 [oldlace]=fdf5e6 [olive]=808000
+            [olivedrab]=6b8e23 [orange]=ffa500 [orangered]=ff4500 [orchid]=da70d6
+            [palegoldenrod]=eee8aa [palegreen]=98fb98 [paleturquoise]=afeeee [palevioletred]=db7093
+            [papayawhip]=ffefd5 [peachpuff]=ffdab9 [peru]=cd853f [pink]=ffc0cb
+            [plum]=dda0dd [powderblue]=b0e0e6 [purple]=800080 [rebeccapurple]=663399
+            [red]=ff0000 [rosybrown]=bc8f8f [royalblue]=4169e1 [saddlebrown]=8b4513
+            [salmon]=fa8072 [sandybrown]=f4a460 [seagreen]=2e8b57 [seashell]=fff5ee
+            [sienna]=a0522d [silver]=c0c0c0 [skyblue]=87ceeb [slateblue]=6a5acd
+            [slategray]=708090 [slategrey]=708090 [snow]=fffafa [springgreen]=00ff7f
+            [steelblue]=4682b4 [tan]=d2b48c [teal]=008080 [thistle]=d8bfd8
+            [tomato]=ff6347 [turquoise]=40e0d0 [violet]=ee82ee [wheat]=f5deb3
+            [white]=ffffff [whitesmoke]=f5f5f5 [yellow]=ffff00 [yellowgreen]=9acd32
+        )
+        _CSS_COLORS_INIT=1
+    }
+
+    function _list_color_names() {
+        _css_init
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite none clear
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+    }
+
+    function is_valid_color() {
+        local val="${1,,}"
+        [[ "$val" == "none" || "$val" == "clear" ]] && return 0
+        [[ "$val" =~ ^#([a-fA-F0-9]{6}|[a-fA-F0-9]{3})$ ]] && return 0
+        [[ "$val" =~ ^[0-9]+$ ]] && (( val >= 0 && val <= 255 )) && return 0
+        case "$val" in
+            black|red|green|yellow|blue|magenta|purple|cyan|white|gray|grey) return 0 ;;
+            brightblack|brightred|brightgreen|brightyellow|brightblue|brightmagenta|brightpurple|brightcyan|brightwhite) return 0 ;;
+        esac
+        _css_init
+        [[ -n "${_CSS_COLORS[$val]:-}" ]] && return 0
+        return 1
+    }
+
+    function strict_bool() {
+        local val="${1,,}"
+        case "$val" in
+            true|1|yes) printf "true" ;;
+            false|0|no) printf "false" ;;
+            *) printf "INVALID" ;;
+        esac
+    }
+
+    function resolve_color() {
+        local val="${1,,}"
+        [[ -z "$val" ]] && return
+        if [[ "$val" == \#* ]]; then
+            echo "$val"; return
+        fi
+        case "$val" in
+            black) echo "0" ;; red) echo "1" ;; green) echo "2" ;; yellow) echo "3" ;; blue) echo "4" ;;
+            magenta|purple) echo "5" ;; cyan) echo "6" ;; white) echo "7" ;;
+            brightblack|gray|grey) echo "8" ;; brightred) echo "9" ;; brightgreen) echo "10" ;;
+            brightyellow) echo "11" ;; brightblue) echo "12" ;; brightmagenta|brightpurple) echo "13" ;;
+            brightcyan) echo "14" ;; brightwhite) echo "15" ;;
+            *)
+                if [[ "$val" =~ ^[0-9]+$ ]]; then
+                    echo "$val"
+                else
+                    _css_init
+                    local hex="${_CSS_COLORS[$val]:-}"
+                    if [[ -n "$hex" ]]; then
+                        echo "#$hex"
+                    else
+                        echo "$val"
+                    fi
+                fi
+                ;;
+        esac
+    }
+
     function make_ansi() {
         local fg=$1; local bg=$2; local attr=$3; local seq=""
         [[ -n "$attr" ]] && seq+="${ESC}[${attr}m"
-        [[ -n "$fg" ]] && seq+="${ESC}[38;5;${fg}m"
-        [[ -n "$bg" ]] && seq+="${ESC}[48;5;${bg}m"
-        echo "$seq"
-    }
-
-    function check_literal() {
-        local param_name="$1"; local value="$2"; shift 2; local options=("$@")
-        local found=false
-        for opt in "${options[@]}"; do
-            if [[ "$value" == "$opt" ]]; then found=true; break; fi
-        done
-        if [[ "$found" == "false" ]]; then
-            local list_str=$(IFS=, ; echo "${options[*]}")
-            echo "gum: error: invalid value for --$param_name: \"$value\"" >&2
-            echo "Valid options: $list_str" >&2
-            return 1
+        
+        if [[ -n "$fg" && "$fg" != "none" ]]; then
+            local c_fg="$(resolve_color "$fg")"
+            if [[ "$c_fg" == \#* ]]; then
+                local hex="${c_fg#\#}"
+                [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+                local r=$(( 16#${hex:0:2} )); local g=$(( 16#${hex:2:2} )); local b=$(( 16#${hex:4:2} ))
+                seq+="${ESC}[38;2;${r};${g};${b}m"
+            else
+                seq+="${ESC}[38;5;${c_fg}m"
+            fi
         fi
-        return 0
-    }
 
-    function parse_bool() {
-        local val="${1,,}"
-        if [[ "$val" == "true" || "$val" == "1" || "$val" == "yes" ]]; then echo "true"; else echo "false"; fi
+        if [[ -n "$bg" && "$bg" != "none" ]]; then
+            local c_bg="$(resolve_color "$bg")"
+            if [[ "$c_bg" == \#* ]]; then
+                local hex="${c_bg#\#}"
+                [[ ${#hex} -eq 3 ]] && hex="${hex:0:1}${hex:0:1}${hex:1:1}${hex:1:1}${hex:2:1}${hex:2:1}"
+                local r=$(( 16#${hex:0:2} )); local g=$(( 16#${hex:2:2} )); local b=$(( 16#${hex:4:2} ))
+                seq+="${ESC}[48;2;${r};${g};${b}m"
+            else
+                seq+="${ESC}[48;5;${c_bg}m"
+            fi
+        fi
+        
+        printf '%s' "$seq"
     }
 
     function show_help_panel() {
         cat <<EOF
 Usage: bash-utils table [flags]
 
-Render a high-performance table of data using AWK.
+Render a high-performance, boxed table of data using AWK.
+Data is read from STDIN.
 
 Flags:
   -h, --help                Show help
@@ -44,34 +208,36 @@ Flags:
   --align="left"            Table alignment (left, center, right)
   
   # Borders
-  --border.type="rounded"   Type: "normal", "rounded", "thick", "double", "hidden"
-  --border.style="default"  Style: "default", "rows", "mdcat"
-  --border-foreground=240   Border foreground color
+  --border.type="rounded"   Type: normal, rounded, thick, double, hidden
+  --border.style="default"  Style: default, rows, mdcat
+  --border-foreground=240   Border foreground color (Name (incl. CSS names like 'coral'), Hex, 0-255)
   --border-background=""    Border background color
 
   # Styles
   --header-foreground=212   Header text color
   --header-background=""    Header bg color
-  --header.bold             Bold header
   --foreground=""           Cell text color
   --background=""           Cell bg color
-  --foreground.bold         Bold cell text
-  --foreground.underline    Underline cell text
+
+  # Attributes (Boolean)
+  --header.bold, --header.italic, --header.underline, --header.strikethrough, --header.faint
+  --foreground.bold, --foreground.italic, --foreground.underline, --foreground.strikethrough, --foreground.faint
 EOF
     }
 
     local separator=","
     local columns=""
     local align="left"
+    local border_type="rounded"
+    local border_style="default"
+    
     local border_fg="240"; local border_bg=""
     local header_fg="212"; local header_bg=""
-    local h_bold="true"; local h_faint="false"; local h_italic="false"; local h_underline="false"; local h_strike="false"
-    local cell_fg=""; local cell_bg=""
+    local cell_fg="";      local cell_bg=""
+    
+    local h_bold="true";  local h_faint="false"; local h_italic="false"; local h_underline="false"; local h_strike="false"
     local c_bold="false"; local c_faint="false"; local c_italic="false"; local c_underline="false"; local c_strike="false"
-    local border_style="default"
-    local border_type="rounded"
 
-    local args_pos=()
     local parse_args=()
     
     while [[ $# -gt 0 ]]; do
@@ -85,41 +251,113 @@ EOF
     set -- "${parse_args[@]}"
 
     while [[ $# -gt 0 ]]; do
-        case "$1" in
+        local key="$1"
+        local val=""
+        local has_val="false"
+
+        if [[ "$key" == *=* ]]; then
+            val="${key#*=}"
+            key="${key%%=*}"
+            has_val="true"
+        fi
+
+        if [[ "$key" =~ ^--(header|foreground)\.(bold|faint|italic|underline|strikethrough)$ ]]; then
+            local comp="${BASH_REMATCH[1]}"
+            local prop="${BASH_REMATCH[2]}"
+            [[ "$comp" == "foreground" ]] && comp="c"
+            [[ "$comp" == "header" ]] && comp="h"
+            [[ "$prop" == "strikethrough" ]] && prop="strike"
+
+            if [[ "$has_val" == "true" ]]; then
+                local bval=$(strict_bool "$val")
+                [[ "$bval" == "INVALID" ]] && die "Valor booleano inválido en '${key}'. Recibido: '${val}'."
+                eval "${comp}_${prop}=\"${bval}\""
+            else
+                if [[ $# -ge 2 && ! "$2" == --* ]]; then 
+                    local bval=$(strict_bool "$2")
+                    if [[ "$bval" != "INVALID" ]]; then
+                        eval "${comp}_${prop}=\"${bval}\""
+                        shift 2
+                        continue
+                    fi
+                fi
+                eval "${comp}_${prop}=\"true\""
+            fi
+            shift; continue
+        fi
+
+        case "$key" in
             -h|--help) show_help_panel; return 0 ;;
-            -s|--separator)   separator="$2"; shift 2 ;;
-            -c|--columns)     columns="$2"; shift 2 ;;
-            --align)          align="$2"; shift 2 ;;
             
-            --border.style)   border_style="$2"; shift 2 ;;
-            --border.type|--border)    border_type="$2"; shift 2 ;;
-            --border-foreground)   border_fg="$2"; shift 2 ;;
-            --border-background)   border_bg="$2"; shift 2 ;;
-            
-            --header-foreground)   header_fg="$2"; shift 2 ;;
-            --header-background)   header_bg="$2"; shift 2 ;;
-            --header.bold)         h_bold="true"; shift ;;
-            --header.faint)        h_faint="true"; shift ;;
-            --header.italic)       h_italic="true"; shift ;;
-            --header.underline)    h_underline="true"; shift ;;
-            --header.strikethrough) h_strike="true"; shift ;;
-            
-            --foreground)          cell_fg="$2"; shift 2 ;;
-            --background)          cell_bg="$2"; shift 2 ;;
-            --foreground.bold)     c_bold="true"; shift ;;
-            --foreground.faint)    c_faint="true"; shift ;;
-            --foreground.italic)   c_italic="true"; shift ;;
-            --foreground.underline) c_underline="true"; shift ;;
-            --foreground.strikethrough) c_strike="true"; shift ;;
-            
-            -*) echo "Error: unknown flag: $1" >&2; return 1 ;;
-            *) shift ;;
+            -s|--separator|-c|--columns|--align|--border.type|--border|--border.style|--border-foreground|--border-background|--header-foreground|--header-background|--foreground|--background)
+                if [[ "$has_val" == "false" ]]; then
+                    if [[ $# -lt 2 || "$2" == --* ]]; then
+                        die "La bandera '${key}' requiere un valor asignado."
+                    fi
+                    val="$2"
+                    shift 2
+                else
+                    shift
+                fi
+
+                case "$key" in
+                    -s|--separator) separator="$val" ;;
+                    -c|--columns)   columns="$val" ;;
+                    --align)
+                        case "${val,,}" in
+                            left|center|right) align="${val,,}" ;;
+                            *) die "Alineación inválida en '${key}'. Literales: left, center, right." ;;
+                        esac ;;
+                    --border.type|--border)
+                        case "${val,,}" in
+                            normal|rounded|thick|double|hidden) border_type="${val,,}" ;;
+                            *) die "Borde inválido en '${key}'. Literales: normal, rounded, thick, double, hidden." ;;
+                        esac ;;
+                    --border.style)
+                        case "${val,,}" in
+                            default|rows|mdcat) border_style="${val,,}" ;;
+                            *) die "Estilo de borde inválido en '${key}'. Literales: default, rows, mdcat." ;;
+                        esac ;;
+                    
+                    --border-foreground|--border-background|--header-foreground|--header-background|--foreground|--background)
+                        if ! is_valid_color "$val"; then
+                            die "Color inválido en '${key}'. Recibido: '${val}'. Colores disponibles: $(_list_color_names)"
+                        fi
+                        case "$key" in
+                            --border-foreground) border_fg="$val" ;;
+                            --border-background) border_bg="$val" ;;
+                            --header-foreground) header_fg="$val" ;;
+                            --header-background) header_bg="$val" ;;
+                            --foreground)        cell_fg="$val" ;;
+                            --background)        cell_bg="$val" ;;
+                        esac
+                        ;;
+                esac
+                ;;
+
+            -*) die "Bandera desconocida o no soportada: '${key}'." ;;
+            *)  shift ;; 
         esac
     done
 
-    check_literal "align" "$align" "left" "center" "right" || return 1
-    check_literal "border.type" "$border_type" "normal" "rounded" "thick" "double" "hidden" || return 1
-    check_literal "border.style" "$border_style" "default" "rows" "mdcat" || return 1
+    if [ -t 0 ]; then
+        return 0
+    fi
+    
+    local raw_content
+    raw_content=$(cat)
+    [[ -z "$raw_content" ]] && return 0
+
+    local stty_orig=""
+    if [ -t 2 ]; then 
+        stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+        stty -echo -icanon < /dev/tty 2>/dev/null
+    fi
+    
+    trap '
+        if [[ -n "$stty_orig" ]]; then stty "$stty_orig" < /dev/tty 2>/dev/null; fi
+        exit 130
+    ' INT TERM
 
     declare -A B_NORM=( [tl]="┌" [t]="─" [tr]="┐" [tm]="┬" [l]="│" [m]="│" [r]="│" [ml]="├" [h]="─" [mm]="┼" [mr]="┤" [bl]="└" [b]="─" [br]="┘" [bm]="┴" )
     declare -A B_RND=(  [tl]="╭" [t]="─" [tr]="╮" [tm]="┬" [l]="│" [m]="│" [r]="│" [ml]="├" [h]="─" [mm]="┼" [mr]="┤" [bl]="╰" [b]="─" [br]="╯" [bm]="┴" )
@@ -160,7 +398,8 @@ EOF
     local reset="${ESC}[0m"
     local term_cols=$(tput cols 2>/dev/null || echo 80)
 
-    cat - | awk -F "$separator" \
+    local frame
+    frame=$(printf '%s\n' "$raw_content" | awk -F "$separator" \
         -v COLUMNS_STR="$columns" \
         -v ALIGN="$align" \
         -v BORDER_STYLE="$border_style" \
@@ -178,6 +417,8 @@ EOF
     '
     function visible_length(str) {
         gsub(/\033\[[0-9;]*[a-zA-Z]/, "", str)
+        gsub(/\033\]8;;[^\033]*\033\\/, "", str)
+        gsub(/\033\]8;;\033\\/, "", str)
         return length(str)
     }
     function repeat(char, n,   res) {
@@ -242,7 +483,6 @@ EOF
         PAD_STR = sprintf("%" padding_spaces "s", "")
 
         if (has_header) {
-            # Top Border (Skip for mdcat)
             if (BORDER_STYLE != "mdcat") {
                 printf "%s%s%s", PAD_STR, S_BORDER, B_TL
                 for (i=1; i<=num_cols; i++) {
@@ -323,7 +563,15 @@ EOF
             }
             printf "%s%s\n", B_BR, RESET
         }
-    }'
+    }')
+
+    if [[ -n "$stty_orig" ]]; then
+        while read -rsn1 -t 0.01 _trash < /dev/tty 2>/dev/null; do :; done
+        stty "$stty_orig" < /dev/tty 2>/dev/null
+    fi
+    trap - INT TERM
+
+    printf '%s\n' "$frame"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

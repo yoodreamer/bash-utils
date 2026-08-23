@@ -1,22 +1,77 @@
 #!/usr/bin/env bash
 
-strip_ansi() {
-    sed -E '
-        s/\x1b\]8;;[^\x1b]*\x1b\\//g;
-        s/\x1b\][^\x1b\x07]*(\x07|\x1b\\)//g;
-        s/\x1b\[[0-9;?]*[ -/]*[@-~]//g;
-        s/\[[0-9;]*m//g;
-        s/(^|[[:space:]])[0-9]+m/\1/g;
-        s/[0-9]{1,3}m//g;
-        s/[\x07\x1b]//g
-    ' <<< "${1}"
-}
-
 function cmd_join() {
-    
+
+    local ESC=$'\e'
+
     function die() {
-        echo -e "\033[31mError: $1\033[0m" >&2
-        return 1
+        printf '%s\n' "${ESC}[31m[!] Error: $1${ESC}[0m" >&2
+        exit 1
+    }
+
+    function strip_ansi() {
+        local input
+        if [[ $# -gt 0 ]]; then
+            input="$*"
+        else
+            IFS= read -r -d '' input
+        fi
+
+        local out=""
+        local -i state=0 
+        local -r ESC=$'\x1b'
+        local -r BEL=$'\x07'
+        local -i i len=${#input}
+        local c
+
+        for (( i=0; i<len; i++ )); do
+            c="${input:i:1}"
+            case "$state" in
+                0) 
+                    case "$c" in
+                        "$ESC") state=1 ;;
+                        "$BEL") : ;;
+                        *) out+="$c" ;;
+                    esac
+                    ;;
+                1)
+                    case "$c" in
+                        '[') state=2 ;;
+                        ']') state=3 ;;
+                        '%'|'('|')'|'0'|'3'|'5'|'6'|'#') state=5 ;;
+                        "$BEL"|'A'|'B'|'C'|'D'|'E'|'H'|'I'|'J'|'K'|'M'|'N'|'O'|'S'|'T'|'Z'|'c'|'s'|'u'|'1'|'2'|'7'|'8'|'<'|'='|'>')
+                            state=0 ;;
+                        *)
+                            out+="${ESC}${c}"
+                            state=0
+                            ;;
+                    esac
+                    ;;
+                2) 
+                    case "$c" in
+                        ';'|'?'|[0-9]) : ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                3) 
+                    case "$c" in
+                        [0-9]) state=4 ;;
+                        *) state=0 ;;
+                    esac
+                    ;;
+                4)
+                    case "$c" in
+                        "$BEL") state=0 ;;
+                        "$ESC") state=5 ;;
+                    esac
+                    ;;
+                5) 
+                    state=0
+                    ;;
+            esac
+        done
+
+        printf '%s' "$out"
     }
 
     function check_literal() {
@@ -27,11 +82,8 @@ function cmd_join() {
         done
         if [[ "$found" == "false" ]]; then
             local list_str=$(IFS=, ; echo "${options[*]}")
-            echo "gum: error: invalid value for --$param_name: \"$value\"" >&2
-            echo "Valid options: $list_str" >&2
-            return 1
+            die "Valor inválido para '--${param_name}': \"${value}\". Literales esperados: ${list_str}."
         fi
-        return 0
     }
 
     function show_help_panel() {
@@ -52,36 +104,53 @@ EOF
     }
 
     local direction="horizontal"
-    local align="top" 
+    local align="top"
     local args_text=()
-    local parse_args=()
+
+    local -A _known_flags=( [--horizontal]=1 [--vertical]=1 [--align]=1 )
 
     while [[ $# -gt 0 ]]; do
-        if [[ "$1" == --*=* ]]; then
-            parse_args+=("${1%%=*}" "${1#*=}")
-        else
-            parse_args+=("$1")
+        local key="$1"
+
+        if [[ "$key" == "-h" || "$key" == "--help" ]]; then
+            show_help_panel; return 0
         fi
-        shift
-    done
-    set -- "${parse_args[@]}"
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help) show_help_panel; return 0 ;;
-            --horizontal) direction="horizontal" ;;
-            --vertical)   direction="vertical" ;;
-            
-            --align)
-                if [[ $# -lt 2 || "$2" == -* ]]; then
-                    die "Flag '--align' requires an argument." || return 1
-                fi
-                align="$2"; shift ;;
-            
-            -*) die "Unknown flag: $1" || return 1 ;;
-            *) args_text+=("$1") ;;
-        esac
-        shift
+        if [[ "$key" == -* ]]; then
+            local base_key="$key"
+            [[ "$key" == *=* ]] && base_key="${key%%=*}"
+
+            if [[ -z "${_known_flags[$base_key]:-}" ]]; then
+                die "Bandera desconocida: '${base_key}'."
+            fi
+
+            case "$base_key" in
+                --horizontal|--vertical)
+                    if [[ "$key" == *=* ]]; then
+                        die "'${base_key}' no acepta un valor. Literal esperado: la bandera sola, sin '='."
+                    fi
+                    [[ "$base_key" == "--horizontal" ]] && direction="horizontal"
+                    [[ "$base_key" == "--vertical" ]] && direction="vertical"
+                    shift
+                    ;;
+                --align)
+                    if [[ "$key" == *=* ]]; then
+                        align="${key#*=}"
+                        shift
+                    else
+                        shift
+                        if [[ $# -lt 1 || "$1" == --* ]]; then
+                            die "Falta argumento para '--align'. Literal esperado: un valor (ni otra bandera)."
+                        fi
+                        align="$1"
+                        shift
+                    fi
+                    ;;
+            esac
+        else
+            args_text+=("$1")
+            shift
+        fi
     done
 
     if [[ ${#args_text[@]} -eq 0 ]]; then
@@ -99,7 +168,7 @@ EOF
         fi
     fi
 
-    check_literal "align" "$align" "top" "center" "bottom" "left" "right" || return 1
+    check_literal "align" "$align" "top" "center" "bottom" "left" "right"
 
     if [[ "$direction" == "horizontal" ]]; then
         [[ "$align" == "left" ]] && align="top"
@@ -131,14 +200,14 @@ EOF
                 local diff=$((max_w - len))
                 local pad_l=0
                 local pad_r=0
-                
+
                 if [[ "$align" == "center" ]]; then
                     pad_l=$((diff / 2))
                     pad_r=$((diff - pad_l))
                 elif [[ "$align" == "right" ]]; then
                     pad_l=$diff
                 fi
-                
+
                 printf "%*s%s%*s\n" "$pad_l" "" "$line" "$pad_r" ""
             done <<< "$block"
         done
@@ -146,8 +215,11 @@ EOF
     fi
 
     local temp_dir
-    temp_dir=$(mktemp -d) || return 1
-    
+    temp_dir=$(mktemp -d) || die "No se pudo crear un directorio temporal."
+
+    trap 'rm -rf "$temp_dir" 2>/dev/null' EXIT
+    trap 'rm -rf "$temp_dir" 2>/dev/null; printf "\n" >&2; exit 130' SIGINT SIGTERM
+
     local max_h=0
     local i=0
     local file_list=()
@@ -166,21 +238,21 @@ EOF
             local f="${file_list[$j]}"
             local lines=$(wc -l < "$f")
             local diff=$((max_h - lines))
-            
+
             if (( diff > 0 )); then
                 local pad_top=0
                 local pad_bottom=0
-                
+
                 if [[ "$align" == "center" ]]; then
                     pad_top=$((diff / 2))
                     pad_bottom=$((diff - pad_top))
                 elif [[ "$align" == "bottom" ]]; then
                     pad_top=$diff
                 fi
-                
+
                 local content=$(cat "$f")
                 : > "$f"
-                
+
                 for ((k=0; k<pad_top; k++)); do echo "" >> "$f"; done
                 echo "$content" >> "$f"
                 for ((k=0; k<pad_bottom; k++)); do echo "" >> "$f"; done
@@ -190,7 +262,8 @@ EOF
 
     paste -d '' "${file_list[@]}"
 
-    rm -rf "$temp_dir"
+    rm -rf "$temp_dir" 2>/dev/null
+    trap - EXIT SIGINT SIGTERM
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

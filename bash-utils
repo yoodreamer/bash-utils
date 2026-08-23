@@ -1,26 +1,12 @@
 #!/bin/bash
 
-# Validación
-# [[ ! -x /usr/bin/ansi2txt ]] && printf "No se encontro 'ansi2txt', saliendo...\n" && exit 1
-
 SELF=${0##*/}
 REALPATH=$(dirname "$(realpath "$0")")
-THEME="default"
 
-function source-colors(){
-  local theme="${1:-default}"
-  colors="${REALPATH}/src/colors/colors.json"
-  
-  if [[ ! -f "$colors" ]]; then return; fi
-
-  local theme_json=$(jq -r ".themes[\"${theme}\"]" "${colors}")
-
-  while IFS="=" read -r key value; do
-      printf -v "$key" %b "$value"
-  done < <(echo "$theme_json" | jq -r 'to_entries[] | "\(.key)=\(.value)"')
-}
-
-source-colors "${THEME}"
+pink="\e[38;5;211m"
+red="\e[38;5;204m"
+blue="\e[38;5;111m"
+end="\e[0m"
 
 function __cmd_file(){
   if [[ -f "${REALPATH}/src/scripts/file" ]]; then
@@ -147,7 +133,16 @@ function __join(){
   else 
     echo "Error: 'join' not found"
   fi 
-} 
+}
+
+function __format(){
+  if [[ -f "${REALPATH}/src/scripts/format" ]]; then 
+    source "${REALPATH}/src/scripts/format"
+    cmd_format "${@}"
+  else 
+    echo "Error: 'format' not found"
+  fi 
+}
 
 function helpPanel(){
   msg="Usage: ${SELF} <command> [flags]
@@ -172,7 +167,8 @@ Commands:
   ${blue}text${end}               Show a beautifiul text
   ${blue}style${end}              Apply coloring, borders, spacing to text
   ${blue}pager${end}              Scroll through a file
-  ${blue}join${end}             Join text vertically or horizontally
+  ${blue}join${end}               Join text vertically or horizontally
+  ${blue}format${end}             Format a string using a template
 
 Run \"${SELF} <command> --help\" for more information on a command."""
 
@@ -233,13 +229,19 @@ function main(){
       join)
         __join "${@}"
         ;;
+      format)
+        __format "${@}"
+        ;;
       -h|--help)
           helpPanel
           ;;
+      -v|--version)
+        printf "bash-utils version v0.0.1\n"
+        return 0
+        ;;
       *)
           helpPanel
           echo -e "\n${red}${SELF}: error: expected one of \"choose\", \"confirm\", \"file\", ...${end}\n"
-
           exit 1
           ;;
   esac
