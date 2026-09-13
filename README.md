@@ -27,7 +27,7 @@ bash-utils input > answer.txt
 bash-utils input --password > password.txt
 ```
 
-https://github.com/user-attachments/assets/fd38d407-42cd-4d33-8f03-33d22bfbb969
+<img width="1000" height="500" alt="input" src="https://github.com/user-attachments/assets/494bdc8d-b7dd-4dc1-9e7b-639cb9bffc71" />
 
 ---
 
