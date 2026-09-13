@@ -77,14 +77,14 @@ EOF
 
         awk -v input="$esc_input" -F'\t' '
             BEGIN {
-                placeholder = "\001"          # carácter que nunca aparece en texto normal
-                gsub(/\\:/, placeholder, input)  # proteger los ":" escapados
+                placeholder = "\001"          
+                gsub(/\\:/, placeholder, input) 
             }
             NF >= 2 && $1 != "" && $2 != "" {
                 gsub($1, $2, input)
             }
             END {
-                gsub(placeholder, ":", input)  # restaurar como ":" literal, sin la barra
+                gsub(placeholder, ":", input)  
                 print input
             }
         ' "$_EMOJIS_TSV"
@@ -195,7 +195,6 @@ STRIPEOF
           bold    = "\033[1m"
           italic  = "\033[3m"
 
-          # Bright variants
           b_blue   = "\033[94m"
           b_yellow = "\033[93m"
           b_white  = ""
@@ -251,7 +250,7 @@ STRIPEOF
           for (i = 2; i <= 10; i++) color_stack[i] = gray
 
           callout_open[1] = 0
-          in_code         = 0   # dentro de bloque ```
+          in_code         = 0   
 
           html_list_depth = 0
 
@@ -540,14 +539,14 @@ STRIPEOF
           }
 
 
-          if (val ~ /^#[0-9a-f]{3}$/) {                      # #rgb
+          if (val ~ /^#[0-9a-f]{3}$/) {                      
               h = substr(val, 2)
               return sprintf("\033[%s;2;%d;%d;%dm", prefix,
                   strtonum("0x" substr(h,1,1) substr(h,1,1)),
                   strtonum("0x" substr(h,2,1) substr(h,2,1)),
                   strtonum("0x" substr(h,3,1) substr(h,3,1)))
           }
-          if (val ~ /^#[0-9a-f]{6}$/) {                      # #rrggbb
+          if (val ~ /^#[0-9a-f]{6}$/) {                     
               h = substr(val, 2)
               return sprintf("\033[%s;2;%d;%d;%dm", prefix,
                   strtonum("0x" substr(h,1,2)),
@@ -557,7 +556,6 @@ STRIPEOF
           if (match(val, /^rgba?\(([0-9]{1,3}),([0-9]{1,3}),([0-9]{1,3})(,[0-9.]+)?\)$/, m)) {
               if (m[1]+0 > 255 || m[2]+0 > 255 || m[3]+0 > 255) return ""
               return sprintf("\033[%s;2;%d;%d;%dm", prefix, m[1]+0, m[2]+0, m[3]+0)
-              # alpha (m[4]) ignorado — terminales no lo soportan
           }
           return ""   
       }
@@ -578,12 +576,10 @@ STRIPEOF
 
               fg = ""; bg = ""
 
-              # color: <valor>
               if (match(style, /(^|;)[[:space:]]*color[[:space:]]*:[[:space:]]*([^;]+)/, m)) {
                   val = m[2]; gsub(/[[:space:]]*$/, "", val)
                   fg = color_to_ansi(val, "38")
               }
-              # background-color: o background: <valor>
               if (match(style, /(^|;)[[:space:]]*(background-color|background)[[:space:]]*:[[:space:]]*([^;]+)/, m)) {
                   val = m[3]; gsub(/[[:space:]]*$/, "", val)
                   bg = color_to_ansi(val, "48")
@@ -621,7 +617,6 @@ STRIPEOF
       }
 
       function visible_prefix_len(prefix, depth) {
-          # cada nivel aporta "▌  " = 3 chars visibles
           return (depth - 1) * 3 + 3 
       }
 
@@ -698,7 +693,7 @@ STRIPEOF
           result = ""
           rest = str
           while (match(rest, /<img[^>]*>/, arr)) {
-              m_start = RSTART   # guardar ANTES de los match() anidados de abajo
+              m_start = RSTART   
               m_len   = RLENGTH
               tag = arr[0]
               alt = ""; src = ""; w = ""; h = ""
@@ -1141,9 +1136,6 @@ STRIPEOF
 
       function render_html_blockquote(buf,    lines, n, i, tmp_file, cmd, dline, pfx, first_idx, probe) {
           pfx = gray BAR_PREFIX fg_def
-          # NOTA: sin dewrap_hard_breaks() acá — mismo motivo que render_details:
-          # el cuerpo de un <blockquote> es Markdown+HTML mixto real, no HTML
-          # crudo garantizado, y el heurístico rompe tablas/listas/párrafos.
 
           n = split(buf, lines, "\n")
           first_idx = 0
@@ -1549,7 +1541,7 @@ STRIPEOF
           rest = dewrap_hard_breaks(buf)
           while (match(rest, /<tr[^>]*>/)) {
               after_tr = substr(rest, RSTART + RLENGTH)
-              if (!match(after_tr, /<\/tr>/)) break   # <tr> sin cerrar → se corta acá
+              if (!match(after_tr, /<\/tr>/)) break   
               row_content = substr(after_tr, 1, RSTART - 1)
               rest        = substr(after_tr, RSTART + RLENGTH)
 
@@ -1630,11 +1622,9 @@ STRIPEOF
                   continue
               }
               if (line ~ /^!\[/) {
-                  # Línea de imagen → es un bloque propio, no se une con nada
                   if (buf != "") { out = out (out != "" ? "\n" : "") buf; buf = "" }
                   out = out (out != "" ? "\n" : "") line
               } else {
-                  # Contenido inline → acumular en el buffer de la línea actual
                   buf = buf (buf != "" ? " " : "") line
               }
           }
@@ -1648,7 +1638,7 @@ STRIPEOF
               c = substr(str, i, 1)
               if      (c == "[")               { depth++; out = out c }
               else if (c == "]" && depth > 0)  { depth--; out = out c }
-              else if (c == "\n" && depth > 0) out = out " "   # <br> dentro de link → espacio
+              else if (c == "\n" && depth > 0) out = out " "   
               else                              out = out c
           }
           return out
@@ -1740,7 +1730,6 @@ STRIPEOF
           }
           html_center_lines++
           if (html_center_lines > 200) {
-              # <div/p align="..."> sin cierre — sintaxis inválida, texto plano
               print html_center_open
               if (html_center_buf != "") print html_center_buf
               in_html_center = 0
@@ -1803,7 +1792,6 @@ STRIPEOF
 
           if (callout_open[depth]) {
               prefix = make_prefix(depth)
-              # cur_fg = color_stack[depth]
               cur_fg = (color_stack[depth] != "") ? color_stack[depth] : gray 
               if (!in_code && match(rest, /^[-*+] +(.*)/, arr))
                   print_wrapped(prefix, cur_fg, fg_def, arr[1], "•")
@@ -1856,7 +1844,6 @@ STRIPEOF
           rest   = $0
           for (i = 0; i < depth; i++) sub(/^> ?/, "", rest)
           prefix = make_prefix(depth)
-          # cur_fg = color_stack[depth]
           cur_fg = (color_stack[depth] != "") ? color_stack[depth] : gray 
           callout_open[depth] = 1
 
@@ -2042,7 +2029,7 @@ STRIPEOF
               out_h = cur_fg icon " " format_inline(title, cur_fg) reset
               visw_h = visible_len(out_h)
               if (h_align == "right") pad_h = term_w_h - visw_h - 2
-              else pad_h = int((term_w_h - visw_h) / 2)   # center o justify → centrado
+              else pad_h = int((term_w_h - visw_h) / 2)   
               if (pad_h < 0) pad_h = 0
               printf "%*s%s\n", pad_h, "", out_h
               next
@@ -2148,7 +2135,6 @@ STRIPEOF
           print_hr()
           next
       }
-      # <hr>, <hr/>, <hr />, <hr class="...">  — equivalente HTML de "---"
       /^[[:space:]]*<hr[^>]*>[[:space:]]*$/ && !in_code {
           print_hr()
           next
@@ -2376,7 +2362,7 @@ STRIPEOF
           hdr  = "\033[1;93m"
           txt  = ""
 
-          prefix_w = visible_len(line_prefix)   # ← ancho visible del prefijo (la barra de quote)
+          prefix_w = visible_len(line_prefix)   
 
           ncols = 0
           delete col_w
@@ -2419,7 +2405,7 @@ STRIPEOF
                   w       = cell_w_memo[i, j]
                   have = 0
                   for (k = col_ptr; k < col_ptr + span; k++) have += col_w[k]
-                  have += 3 * (span - 1)   # separadores internos que se omiten, absorbidos como relleno
+                  have += 3 * (span - 1)   
                   if (w > have) col_w[col_ptr + span - 1] += (w - have)
               }
           }
@@ -2549,7 +2535,7 @@ STRIPEOF
                       frag_len = visible_len(frag)
                       w = usable - frag_len
                       if (w < 0) w = 0
-                      align = col_align[col_ptr]   # alineación de la columna de INICIO del span
+                      align = col_align[col_ptr]   
                       pad_l = ""; pad_r = ""
                       if (align == "center") {
                           pad_len_l = int(w / 2); pad_len_r = w - pad_len_l
@@ -2570,7 +2556,6 @@ STRIPEOF
           print line_prefix bot
       }
 
-      # ── Definiciones de links [ref]: url ─────────────────────────────
       /^\[[^\]]+\]:[[:space:]]/ && !in_code {
         if (match($0, /^\[([^\]]+)\]:[[:space:]]+<?([^[:space:]>"]+)>?/, arr)) {
           link_refs[tolower(arr[1])] = arr[2]
@@ -2615,7 +2600,6 @@ AWKEOF
           fi
       done
 
-      # se hace `cat` de un archivo ya armado (que sí se veía bien).
       gawk -v SELF_AWK="$_mdcat_awkfile" \
            -v ICONS_DIR="$_mdcat_dir/../icons" \
            -f "$_mdcat_awkfile" \

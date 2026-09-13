@@ -122,7 +122,13 @@ function cmd_file() {
 
     function _list_color_names() {
         _css_init
-        printf '%s\n' "${!_CSS_COLORS[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
+        local names=(
+            black red green yellow blue magenta purple cyan white gray grey
+            brightblack brightred brightgreen brightyellow brightblue
+            brightmagenta brightpurple brightcyan brightwhite none clear
+        )
+        names+=("${!_CSS_COLORS[@]}")
+        printf '%s\n' "${names[@]}" | sort -u | paste -sd, - | sed 's/,/, /g'
     }
 
     function is_valid_color() {
@@ -343,7 +349,7 @@ EOF
                 fi 
                 
                 if ! is_valid_color "$val"; then
-                    die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
+                  die "Color inválido recibido: '${val}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"
                 fi
 
                 case "$prop" in
@@ -477,7 +483,7 @@ EOF
 
             case "$prop" in
                 foreground|fg|background|bg)
-                    if ! is_valid_color "$v"; then die "Color inválido recibido: '${v}'. Literales esperados: #HEX, 0-255 o nombres, colores disponibles: $(_list_color_names)"; fi
+                    if ! is_valid_color "$v"; then die "Color inválido en '${type}.${prop}' (--permissions.custom): '${v}'. Colores disponibles: $(_list_color_names)"; fi
                     [[ "$prop" == "foreground" || "$prop" == "fg" ]] && printf -v "p_${type}_fg" "%s" "$v"
                     [[ "$prop" == "background" || "$prop" == "bg" ]] && printf -v "p_${type}_bg" "%s" "$v"
                     ;;

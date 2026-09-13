@@ -556,8 +556,8 @@ EOF
     local preffix_icon="󰋼 " default_color=$'\033[32m'
     case "${type}" in 
       Info) preffix_icon="󰋼 "; default_color=$'\033[32m';;
-      Error) preffix_icon=" "; default_color=$'\033[31m';;
-      Warning) preffix_icon=" "; default_color=$'\033[33m';;
+      Error) preffix_icon=" "; default_color=$'\033[31m';;
+      Warning) preffix_icon=" "; default_color=$'\033[33m';;
       Hint) preffix_icon="󰛩 "; default_color=$'\033[35m';; 
     esac 
     [[ "${no_prefix}" == true ]] && preffix_icon=""

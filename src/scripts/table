@@ -167,7 +167,7 @@ function cmd_table() {
         local fg=$1; local bg=$2; local attr=$3; local seq=""
         [[ -n "$attr" ]] && seq+="${ESC}[${attr}m"
         
-        if [[ -n "$fg" && "$fg" != "none" ]]; then
+        if [[ -n "$fg" && "$fg" != "none" && "$fg" != "clear" ]]; then
             local c_fg="$(resolve_color "$fg")"
             if [[ "$c_fg" == \#* ]]; then
                 local hex="${c_fg#\#}"
@@ -179,7 +179,7 @@ function cmd_table() {
             fi
         fi
 
-        if [[ -n "$bg" && "$bg" != "none" ]]; then
+        if [[ -n "$bg" && "$bg" != "none" && "$bg" != "clear" ]]; then
             local c_bg="$(resolve_color "$bg")"
             if [[ "$c_bg" == \#* ]]; then
                 local hex="${c_bg#\#}"
@@ -198,23 +198,24 @@ function cmd_table() {
         cat <<EOF
 Usage: bash-utils table [flags]
 
-Render a high-performance, boxed table of data using AWK.
-Data is read from STDIN.
+Render a boxed table of data using AWK. When stdout is a terminal, the
+table becomes interactive: navigate rows and scroll columns. Data is read from STDIN.
 
 Flags:
   -h, --help                Show help
   -s, --separator=","       Separator character
   -c, --columns="A,B,C"     Column titles (If omitted, first row is used as header)
   --align="left"            Table alignment (left, center, right)
-  
+  --height=10               Max visible data rows in interactive mode (integer > 0)
+
   # Borders
   --border.type="rounded"   Type: normal, rounded, thick, double, hidden
   --border.style="default"  Style: default, rows, mdcat
-  --border-foreground=240   Border foreground color (Name (incl. CSS names like 'coral'), Hex, 0-255)
+  --border-foreground=240   Border foreground color (Name (incl. CSS names like 'coral'), Hex, 0-255, none/clear)
   --border-background=""    Border background color
 
   # Styles
-  --header-foreground=212   Header text color
+  --header-foreground=""    Header text color
   --header-background=""    Header bg color
   --foreground=""           Cell text color
   --background=""           Cell bg color
@@ -222,6 +223,18 @@ Flags:
   # Attributes (Boolean)
   --header.bold, --header.italic, --header.underline, --header.strikethrough, --header.faint
   --foreground.bold, --foreground.italic, --foreground.underline, --foreground.strikethrough, --foreground.faint
+
+  # Interactive selection (auto-enabled when stdout is a terminal and there is >=1 data row)
+  --selected-foreground=212 Selected row text color
+  --selected-background=none Selected row bg color
+  --print                   Print the full table and exit immediately, no key wait
+                             (no --print: enters the interactive selector)
+
+  Keys while interactive:
+    ↑/k  up          ↓/j  down
+    ←    scroll cols left   →  scroll cols right (only when columns don't fit)
+    Enter/q/Esc  exit the selector
+
 EOF
     }
 
@@ -230,10 +243,14 @@ EOF
     local align="left"
     local border_type="rounded"
     local border_style="default"
+    local height=10
     
     local border_fg="240"; local border_bg=""
-    local header_fg="212"; local header_bg=""
+    local header_fg=""; local header_bg=""
     local cell_fg="";      local cell_bg=""
+    local sel_fg="212";    local sel_bg="none"
+
+    local print_selection="false"
     
     local h_bold="true";  local h_faint="false"; local h_italic="false"; local h_underline="false"; local h_strike="false"
     local c_bold="false"; local c_faint="false"; local c_italic="false"; local c_underline="false"; local c_strike="false"
@@ -288,8 +305,9 @@ EOF
 
         case "$key" in
             -h|--help) show_help_panel; return 0 ;;
+            --print) print_selection="true"; shift ;;
             
-            -s|--separator|-c|--columns|--align|--border.type|--border|--border.style|--border-foreground|--border-background|--header-foreground|--header-background|--foreground|--background)
+            -s|--separator|-c|--columns|--align|--border.type|--border|--border.style|--border-foreground|--border-background|--header-foreground|--header-background|--foreground|--background|--selected-foreground|--selected-background|--height)
                 if [[ "$has_val" == "false" ]]; then
                     if [[ $# -lt 2 || "$2" == --* ]]; then
                         die "La bandera '${key}' requiere un valor asignado."
@@ -318,18 +336,24 @@ EOF
                             default|rows|mdcat) border_style="${val,,}" ;;
                             *) die "Estilo de borde inválido en '${key}'. Literales: default, rows, mdcat." ;;
                         esac ;;
+                    --height)
+                        [[ ! "$val" =~ ^[1-9][0-9]*$ ]] && die "El valor para '--height' es inválido.\n  Recibido: '${val}'\n  Tipo Literal: Entero positivo (ej. 10, 15)."
+                        height="$val"
+                        ;;
                     
-                    --border-foreground|--border-background|--header-foreground|--header-background|--foreground|--background)
+                    --border-foreground|--border-background|--header-foreground|--header-background|--foreground|--background|--selected-foreground|--selected-background)
                         if ! is_valid_color "$val"; then
                             die "Color inválido en '${key}'. Recibido: '${val}'. Colores disponibles: $(_list_color_names)"
                         fi
                         case "$key" in
-                            --border-foreground) border_fg="$val" ;;
-                            --border-background) border_bg="$val" ;;
-                            --header-foreground) header_fg="$val" ;;
-                            --header-background) header_bg="$val" ;;
-                            --foreground)        cell_fg="$val" ;;
-                            --background)        cell_bg="$val" ;;
+                            --border-foreground)   border_fg="$val" ;;
+                            --border-background)   border_bg="$val" ;;
+                            --header-foreground)   header_fg="$val" ;;
+                            --header-background)   header_bg="$val" ;;
+                            --foreground)          cell_fg="$val" ;;
+                            --background)          cell_bg="$val" ;;
+                            --selected-foreground) sel_fg="$val" ;;
+                            --selected-background) sel_bg="$val" ;;
                         esac
                         ;;
                 esac
@@ -347,17 +371,6 @@ EOF
     local raw_content
     raw_content=$(cat)
     [[ -z "$raw_content" ]] && return 0
-
-    local stty_orig=""
-    if [ -t 2 ]; then 
-        stty_orig=$(stty -g < /dev/tty 2>/dev/null)
-        stty -echo -icanon < /dev/tty 2>/dev/null
-    fi
-    
-    trap '
-        if [[ -n "$stty_orig" ]]; then stty "$stty_orig" < /dev/tty 2>/dev/null; fi
-        exit 130
-    ' INT TERM
 
     declare -A B_NORM=( [tl]="┌" [t]="─" [tr]="┐" [tm]="┬" [l]="│" [m]="│" [r]="│" [ml]="├" [h]="─" [mm]="┼" [mr]="┤" [bl]="└" [b]="─" [br]="┘" [bm]="┴" )
     declare -A B_RND=(  [tl]="╭" [t]="─" [tr]="╮" [tm]="┬" [l]="│" [m]="│" [r]="│" [ml]="├" [h]="─" [mm]="┼" [mr]="┤" [bl]="╰" [b]="─" [br]="╯" [bm]="┴" )
@@ -395,183 +408,414 @@ EOF
     local s_cell_bg=$(make_ansi "" "$cell_bg" "")
     local s_cell_txt=$(make_ansi "$cell_fg" "" "$attr_c")
     local s_border=$(make_ansi "$border_fg" "$border_bg" "")
+    local s_sel_bg=$(make_ansi "" "$sel_bg" "")
+    local s_sel_txt=$(make_ansi "$sel_fg" "" "1")
     local reset="${ESC}[0m"
-    local term_cols=$(tput cols 2>/dev/null || echo 80)
 
-    local frame
-    frame=$(printf '%s\n' "$raw_content" | awk -F "$separator" \
-        -v COLUMNS_STR="$columns" \
-        -v ALIGN="$align" \
-        -v BORDER_STYLE="$border_style" \
-        -v TERM_COLS="$term_cols" \
-        -v S_BORDER="$s_border" \
-        -v S_HEAD_BG="$s_head_bg" \
-        -v S_HEAD_TXT="$s_head_txt" \
-        -v S_CELL_BG="$s_cell_bg" \
-        -v S_CELL_TXT="$s_cell_txt" \
-        -v RESET="$reset" \
-        -v B_TL="${B[tl]}" -v B_T="${B[t]}" -v B_TR="${B[tr]}" -v B_TM="${B[tm]}" \
-        -v B_L="${B[l]}"   -v B_M="${B[m]}" -v B_R="${B[r]}" \
-        -v B_ML="${B[ml]}" -v B_H="${B[h]}" -v B_MM="${B[mm]}" -v B_MR="${B[mr]}" \
-        -v B_BL="${B[bl]}" -v B_B="${B[b]}" -v B_BR="${B[br]}" -v B_BM="${B[bm]}" \
-    '
-    function visible_length(str) {
-        gsub(/\033\[[0-9;]*[a-zA-Z]/, "", str)
-        gsub(/\033\]8;;[^\033]*\033\\/, "", str)
-        gsub(/\033\]8;;\033\\/, "", str)
-        return length(str)
-    }
-    function repeat(char, n,   res) {
-        res = ""
-        for (k=0; k<n; k++) res = res char
-        return res
-    }
+    local term_cols
+    term_cols=$(stty size 2>/dev/null </dev/tty | awk '{print $2}')
+    : "${term_cols:=${COLUMNS:-$(tput cols 2>/dev/null)}}"
+    : "${term_cols:=80}"
+    [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=80
 
-    BEGIN {
-        num_rows = 0
-        explicit_header = 0
-        has_header = 0
-        
-        if (COLUMNS_STR != "") {
-            explicit_header = 1
-            has_header = 1
-            split(COLUMNS_STR, header_cells, ",")
-            num_cols = length(header_cells)
-            for (i=1; i<=num_cols; i++) {
-                len = visible_length(header_cells[i])
-                if (len > col_widths[i]) col_widths[i] = len
+    function render_frame() {
+        local sel_row="${1:-0}"
+        local win_offset="${2:-0}"
+        local win_height="${3:-0}"
+        local col_offset="${4:-0}"
+        local meta_file="${5:-}"
+        printf '%s\n' "$raw_content" | awk -F "$separator" \
+            -v COLUMNS_STR="$columns" \
+            -v ALIGN="$align" \
+            -v BORDER_STYLE="$border_style" \
+            -v TERM_COLS="$term_cols" \
+            -v SEL_ROW="$sel_row" \
+            -v WIN_OFFSET="$win_offset" \
+            -v WIN_HEIGHT="$win_height" \
+            -v COL_OFFSET="$col_offset" \
+            -v META_FILE="$meta_file" \
+            -v S_BORDER="$s_border" \
+            -v S_HEAD_BG="$s_head_bg" \
+            -v S_HEAD_TXT="$s_head_txt" \
+            -v S_CELL_BG="$s_cell_bg" \
+            -v S_CELL_TXT="$s_cell_txt" \
+            -v S_SEL_BG="$s_sel_bg" \
+            -v S_SEL_TXT="$s_sel_txt" \
+            -v RESET="$reset" \
+            -v B_TL="${B[tl]}" -v B_T="${B[t]}" -v B_TR="${B[tr]}" -v B_TM="${B[tm]}" \
+            -v B_L="${B[l]}"   -v B_M="${B[m]}" -v B_R="${B[r]}" \
+            -v B_ML="${B[ml]}" -v B_H="${B[h]}" -v B_MM="${B[mm]}" -v B_MR="${B[mr]}" \
+            -v B_BL="${B[bl]}" -v B_B="${B[b]}" -v B_BR="${B[br]}" -v B_BM="${B[bm]}" \
+        '
+        function visible_length(str) {
+            gsub(/\033\[[0-9;]*[a-zA-Z]/, "", str)
+            gsub(/\033\]8;;[^\033]*\033\\/, "", str)
+            gsub(/\033\]8;;\033\\/, "", str)
+            return length(str)
+        }
+        function repeat(char, n,   res) {
+            res = ""
+            for (k=0; k<n; k++) res = res char
+            return res
+        }
+
+        BEGIN {
+            num_rows = 0
+            explicit_header = 0
+            has_header = 0
+            
+            if (COLUMNS_STR != "") {
+                explicit_header = 1
+                has_header = 1
+                split(COLUMNS_STR, header_cells, ",")
+                num_cols = length(header_cells)
+                for (i=1; i<=num_cols; i++) {
+                    len = visible_length(header_cells[i])
+                    if (len > col_widths[i]) col_widths[i] = len
+                }
             }
         }
-    }
 
-    {
-        if (NR == 1 && explicit_header == 0) {
-            has_header = 1
-            num_cols = NF
+        {
+            if (NR == 1 && explicit_header == 0) {
+                has_header = 1
+                num_cols = NF
+                for (i=1; i<=NF; i++) {
+                    header_cells[i] = $i
+                    len = visible_length($i)
+                    if (len > col_widths[i]) col_widths[i] = len
+                }
+                next
+            }
+
+            num_rows++
+            if (NF > num_cols) num_cols = NF
             for (i=1; i<=NF; i++) {
-                header_cells[i] = $i
+                data[num_rows, i] = $i
                 len = visible_length($i)
                 if (len > col_widths[i]) col_widths[i] = len
             }
-            next
+            for (i=NF+1; i<=num_cols; i++) data[num_rows, i] = ""
         }
 
-        num_rows++
-        if (NF > num_cols) num_cols = NF
-        for (i=1; i<=NF; i++) {
-            data[num_rows, i] = $i
-            len = visible_length($i)
-            if (len > col_widths[i]) col_widths[i] = len
-        }
-        for (i=NF+1; i<=num_cols; i++) data[num_rows, i] = ""
+        END {
+            if (num_rows == 0 && has_header == 0) {
+                if (META_FILE != "") { print "1 0 0" > META_FILE; close(META_FILE) }
+                exit 0
+            }
+
+            sum_widths = 0
+            for (i=1; i<=num_cols; i++) sum_widths += col_widths[i]
+
+            total_table_width = sum_widths + (3 * num_cols) + 1
+            if (BORDER_STYLE == "mdcat") total_table_width = sum_widths + (3 * num_cols) - 1
+
+            padding_spaces = 0
+            tc = TERM_COLS + 0
+            if (total_table_width <= tc) {
+                if (ALIGN == "center") padding_spaces = int((tc - total_table_width) / 2)
+                else if (ALIGN == "right")  padding_spaces = tc - total_table_width
+                if (padding_spaces < 0) padding_spaces = 0
+            }
+            PAD_STR = repeat(" ", padding_spaces)
+
+            col_start = COL_OFFSET + 1
+            if (col_start < 1)        col_start = 1
+            if (col_start > num_cols) col_start = num_cols
+
+            avail_inner = tc - padding_spaces
+            if (BORDER_STYLE != "mdcat") avail_inner -= 2  
+
+            running_w = 0
+            col_end   = col_start - 1
+            for (i = col_start; i <= num_cols; i++) {
+                cost = col_widths[i] + (i == col_start ? 2 : 3)
+                if (running_w + cost <= avail_inner) {
+                    col_end    = i
+                    running_w += cost
+                } else { break }
+            }
+            if (col_end < col_start) col_end = col_start  
+            if (META_FILE != "") {
+                print col_start" "col_end" "num_cols > META_FILE
+                close(META_FILE)
+            }
+
+            if (has_header) {
+                if (BORDER_STYLE != "mdcat") {
+                    printf "%s%s%s", PAD_STR, S_BORDER, B_TL
+                    for (i=col_start; i<=col_end; i++) {
+                        printf "%s", repeat(B_T, col_widths[i]+2)
+                        if (i < col_end) printf "%s", B_TM
+                    }
+                    printf "%s%s\n", B_TR, RESET
+                }
+
+                printf "%s", PAD_STR
+                if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
+                
+                for (i=col_start; i<=col_end; i++) {
+                    val = header_cells[i]
+                    diff = col_widths[i] - visible_length(val)
+                    printf "%s %s%s%s%s%s%s ", S_HEAD_BG, S_HEAD_TXT, val, RESET, S_HEAD_BG, repeat(" ", diff), RESET
+                    if (i < col_end) {
+                        if (BORDER_STYLE == "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
+                        else printf "%s%s%s", S_BORDER, B_M, RESET
+                    }
+                }
+                if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_R, RESET
+                print ""
+
+                printf "%s%s", PAD_STR, S_BORDER
+                
+                if (BORDER_STYLE != "mdcat") printf "%s", B_ML
+                
+                for (i=col_start; i<=col_end; i++) {
+                    printf "%s", repeat(B_H, col_widths[i]+2)
+                    if (i < col_end) printf "%s", B_MM
+                }
+                
+                if (BORDER_STYLE != "mdcat") printf "%s", B_MR
+                
+                printf "%s\n", RESET
+
+            } else if (BORDER_STYLE != "mdcat") {
+                 printf "%s%s%s", PAD_STR, S_BORDER, B_TL
+                 for (i=col_start; i<=col_end; i++) {
+                     printf "%s", repeat(B_T, col_widths[i]+2)
+                     if (i < col_end) printf "%s", B_TM
+                 }
+                 printf "%s%s\n", B_TR, RESET
+            }
+
+            row_start = 1
+            row_end = num_rows
+            if (WIN_HEIGHT > 0) {
+                row_start = WIN_OFFSET + 1
+                row_end = WIN_OFFSET + WIN_HEIGHT
+                if (row_end > num_rows) row_end = num_rows
+                if (row_start > row_end) row_start = row_end + 1
+            }
+
+            for (r=row_start; r<=row_end; r++) {
+                if (r > row_start && BORDER_STYLE == "rows") {
+                    printf "%s%s%s", PAD_STR, S_BORDER, B_ML
+                    for (i=col_start; i<=col_end; i++) {
+                        printf "%s", repeat(B_H, col_widths[i]+2)
+                        if (i < col_end) printf "%s", B_MM
+                    }
+                    printf "%s%s\n", B_MR, RESET
+                }
+
+                printf "%s", PAD_STR
+                if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
+
+                row_bg  = (SEL_ROW > 0 && r == SEL_ROW) ? S_SEL_BG  : S_CELL_BG
+                row_txt = (SEL_ROW > 0 && r == SEL_ROW) ? S_SEL_TXT : S_CELL_TXT
+
+                for (i=col_start; i<=col_end; i++) {
+                    val = data[r, i]
+                    diff = col_widths[i] - visible_length(val)
+                    printf "%s %s%s%s%s%s%s ", row_bg, row_txt, val, RESET, row_bg, repeat(" ", diff), RESET
+                    if (i < col_end) {
+                        if (BORDER_STYLE == "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
+                        else printf "%s%s%s", S_BORDER, B_M, RESET
+                    }
+                }
+                if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_R, RESET
+                print ""
+            }
+
+            if (BORDER_STYLE != "mdcat") {
+                printf "%s%s%s", PAD_STR, S_BORDER, B_BL
+                for (i=col_start; i<=col_end; i++) {
+                    printf "%s", repeat(B_B, col_widths[i]+2)
+                    if (i < col_end) printf "%s", B_BM
+                }
+                printf "%s%s\n", B_BR, RESET
+            }
+        }'
     }
 
-    END {
-        if (num_rows == 0 && has_header == 0) exit 0
+    local -a all_lines=()
+    mapfile -t all_lines <<< "$raw_content"
 
-        sum_widths = 0
-        for (i=1; i<=num_cols; i++) sum_widths += col_widths[i]
-
-        total_table_width = sum_widths + (3 * num_cols) + 1
-        if (BORDER_STYLE == "mdcat") total_table_width = sum_widths + (3 * num_cols) - 1
-
-        padding_spaces = 0
-        if (ALIGN == "center") padding_spaces = int((TERM_COLS - total_table_width) / 2)
-        else if (ALIGN == "right") padding_spaces = TERM_COLS - total_table_width
-        if (padding_spaces < 0) padding_spaces = 0
-        
-        PAD_STR = sprintf("%" padding_spaces "s", "")
-
-        if (has_header) {
-            if (BORDER_STYLE != "mdcat") {
-                printf "%s%s%s", PAD_STR, S_BORDER, B_TL
-                for (i=1; i<=num_cols; i++) {
-                    printf "%s", repeat(B_T, col_widths[i]+2)
-                    if (i < num_cols) printf "%s", B_TM
-                }
-                printf "%s%s\n", B_TR, RESET
-            }
-
-            printf "%s", PAD_STR
-            if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
-            
-            for (i=1; i<=num_cols; i++) {
-                val = header_cells[i]
-                diff = col_widths[i] - visible_length(val)
-                printf "%s %s%s%s%s%s%s ", S_HEAD_BG, S_HEAD_TXT, val, RESET, S_HEAD_BG, repeat(" ", diff), RESET
-                if (i < num_cols) {
-                    if (BORDER_STYLE == "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
-                    else printf "%s%s%s", S_BORDER, B_M, RESET
-                }
-            }
-            if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_R, RESET
-            print ""
-
-            printf "%s%s", PAD_STR, S_BORDER
-            
-            if (BORDER_STYLE != "mdcat") printf "%s", B_ML
-            
-            for (i=1; i<=num_cols; i++) {
-                printf "%s", repeat(B_H, col_widths[i]+2)
-                if (i < num_cols) printf "%s", B_MM
-            }
-            
-            if (BORDER_STYLE != "mdcat") printf "%s", B_MR
-            
-            printf "%s\n", RESET
-
-        } else if (BORDER_STYLE != "mdcat") {
-             printf "%s%s%s", PAD_STR, S_BORDER, B_TL
-             for (i=1; i<=num_cols; i++) {
-                 printf "%s", repeat(B_T, col_widths[i]+2)
-                 if (i < num_cols) printf "%s", B_TM
-             }
-             printf "%s%s\n", B_TR, RESET
-        }
-
-        for (r=1; r<=num_rows; r++) {
-            if (r > 1 && BORDER_STYLE == "rows") {
-                printf "%s%s%s", PAD_STR, S_BORDER, B_ML
-                for (i=1; i<=num_cols; i++) {
-                    printf "%s", repeat(B_H, col_widths[i]+2)
-                    if (i < num_cols) printf "%s", B_MM
-                }
-                printf "%s%s\n", B_MR, RESET
-            }
-
-            printf "%s", PAD_STR
-            if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
-
-            for (i=1; i<=num_cols; i++) {
-                val = data[r, i]
-                diff = col_widths[i] - visible_length(val)
-                printf "%s %s%s%s%s%s%s ", S_CELL_BG, S_CELL_TXT, val, RESET, S_CELL_BG, repeat(" ", diff), RESET
-                if (i < num_cols) {
-                    if (BORDER_STYLE == "mdcat") printf "%s%s%s", S_BORDER, B_L, RESET
-                    else printf "%s%s%s", S_BORDER, B_M, RESET
-                }
-            }
-            if (BORDER_STYLE != "mdcat") printf "%s%s%s", S_BORDER, B_R, RESET
-            print ""
-        }
-
-        if (BORDER_STYLE != "mdcat") {
-            printf "%s%s%s", PAD_STR, S_BORDER, B_BL
-            for (i=1; i<=num_cols; i++) {
-                printf "%s", repeat(B_B, col_widths[i]+2)
-                if (i < num_cols) printf "%s", B_BM
-            }
-            printf "%s%s\n", B_BR, RESET
-        }
-    }')
-
-    if [[ -n "$stty_orig" ]]; then
-        while read -rsn1 -t 0.01 _trash < /dev/tty 2>/dev/null; do :; done
-        stty "$stty_orig" < /dev/tty 2>/dev/null
+    local -i data_row_count
+    if [[ -n "$columns" ]]; then
+        data_row_count=${#all_lines[@]}
+    else
+        data_row_count=$(( ${#all_lines[@]} > 0 ? ${#all_lines[@]} - 1 : 0 ))
     fi
-    trap - INT TERM
 
-    printf '%s\n' "$frame"
+    local -i selected=1
+    (( data_row_count == 0 )) && selected=0
+
+    local is_interactive="false"
+    [[ "$print_selection" != "true" && -t 1 && $data_row_count -gt 0 ]] && is_interactive="true"
+
+    if [[ "$is_interactive" == "true" ]]; then
+        declare -n B=B_HID
+        s_border=""
+    fi
+
+    local frame
+    if [[ "$is_interactive" != "true" ]]; then
+        frame="$(render_frame 0 0 0 0)"
+        printf '%s\n' "$frame"
+        return 0
+    fi
+
+    local stty_orig=""
+    stty_orig=$(stty -g < /dev/tty 2>/dev/null)
+    stty -echo -icanon < /dev/tty 2>/dev/null
+
+    local meta_file
+    meta_file="$(mktemp)"
+
+    local _interrupted=0
+    local needs_redraw=true
+    local -i scroll_offset=0
+    local -i h_scroll_offset=0          
+    local -i win_height=$height
+    (( win_height > data_row_count )) && win_height=$data_row_count
+    (( win_height < 1 )) && win_height=1
+
+    local -i meta_col_start=1 meta_col_end=0 meta_num_cols=0
+
+    trap '_interrupted=1' INT TERM
+    trap 'needs_redraw=true; h_scroll_offset=0' WINCH
+
+    function cleanup() {
+        printf '%s[?25h' "$ESC" >&2
+        if [[ -n "$stty_orig" ]]; then
+            stty "$stty_orig" < /dev/tty 2>/dev/null
+        else
+            stty sane < /dev/tty 2>/dev/null
+        fi
+        rm -f "$meta_file" 2>/dev/null
+    }
+
+    local -i frame_lines=0
+
+    function clear_menu() {
+        if (( frame_lines > 0 )); then
+            local clear_block="" k
+            for (( k=0; k<frame_lines; k++ )); do clear_block+="${ESC}[K"$'\n'; done
+            printf '%s%s[%dA' "$clear_block" "$ESC" "$frame_lines" >&2
+        fi
+    }
+
+    function update_scroll() {
+        (( selected - 1 < scroll_offset )) && scroll_offset=$(( selected - 1 ))
+        (( selected - 1 >= scroll_offset + win_height )) && scroll_offset=$(( selected - win_height ))
+        (( scroll_offset < 0 )) && scroll_offset=0
+    }
+
+    local footer_color=$'\e[38;2;95;95;95m'
+    function render_footer() {
+        local h_ind="" h_hint=""
+        (( meta_col_start > 1 )) && h_ind="◀"
+        (( meta_col_end > 0 && meta_col_end < meta_num_cols )) && h_ind+="▶"
+        [[ -n "$h_ind" ]] && h_ind=" ${h_ind}"
+        [[ -n "$h_ind" ]] && h_hint=" • ←→ cols"
+        printf '%s%d/%d%s • ↓↑/jk rows%s • enter select • esc quit%s' \
+            "$footer_color" "$selected" "$data_row_count" "$h_ind" "$h_hint" "$reset"
+    }
+
+    function build_frame() {
+        local body
+        body="$(render_frame "$selected" "$scroll_offset" "$win_height" "$h_scroll_offset" "$meta_file")"
+        if [[ -s "$meta_file" ]]; then
+            read -r meta_col_start meta_col_end meta_num_cols < "$meta_file"
+        fi
+        printf '%s\n%s' "$body" "$(render_footer)"
+    }
+
+    function draw() {
+        term_cols=$(stty size 2>/dev/null </dev/tty | awk '{print $2}')
+        : "${term_cols:=${COLUMNS:-$(tput cols 2>/dev/null)}}"
+        : "${term_cols:=80}"
+        [[ "$term_cols" =~ ^[0-9]+$ ]] || term_cols=80
+
+        update_scroll
+        frame="$(build_frame)"
+        frame_lines=$(printf '%s\n' "$frame" | wc -l)
+
+        local cleared
+        cleared="$(printf '%s\n' "$frame" | sed "s/\$/${ESC}[K/")"
+        printf '%s\n%s[%dA' "$cleared" "$ESC" "$frame_lines" >&2
+    }
+
+    printf '%s[?25l' "$ESC" >&2
+
+    update_scroll
+    frame="$(build_frame)"
+    frame_lines=$(printf '%s\n' "$frame" | wc -l)
+    local alloc="" k
+    for (( k=0; k<frame_lines; k++ )); do alloc+=$'\n'; done
+    printf '%s%s[%dA' "$alloc" "$ESC" "$frame_lines" >&2
+
+    draw
+
+    local key rest
+    local confirmed="false"
+    while true; do
+        if (( _interrupted == 1 )); then
+            clear_menu
+            cleanup
+            return 130
+        fi
+
+        if [[ "$needs_redraw" == "true" ]]; then
+            draw
+            needs_redraw=false
+        fi
+
+        key=""
+        IFS= read -rsn1 -t 0.05 key < /dev/tty
+        (( $? != 0 )) && continue
+
+        if [[ "$key" == $'\x1b' ]]; then
+            rest=""
+            IFS= read -rsn2 -t 0.01 rest < /dev/tty
+            key+="$rest"
+        fi
+
+        case "$key" in
+            $'\x1b[A'|k|K) (( selected > 1 )) && (( selected-- )); needs_redraw=true ;;
+            $'\x1b[B'|j|J) (( selected < data_row_count )) && (( selected++ )); needs_redraw=true ;;
+            $'\x1b[C')
+                if (( meta_col_end > 0 && meta_col_end < meta_num_cols )); then
+                    (( h_scroll_offset++ )); needs_redraw=true
+                fi
+                ;;
+            $'\x1b[D')
+                if (( meta_col_start > 1 && h_scroll_offset > 0 )); then
+                    (( h_scroll_offset-- )); needs_redraw=true
+                fi
+                ;;
+            q|Q|$'\x1b') confirmed="false"; break ;;
+            ""|$'\r'|$'\n') confirmed="true"; break ;;
+            *) continue ;;
+        esac
+    done
+
+    clear_menu
+    cleanup
+    trap - INT TERM WINCH
+
+    if [[ "$confirmed" == "true" ]]; then
+        local out_line=""
+        if [[ -n "$columns" ]]; then
+            out_line="${all_lines[$((selected-1))]}"
+        else
+            out_line="${all_lines[$selected]}"
+        fi
+        printf '%s\n' "$out_line"
+        return 0
+    fi
+
+    return 1
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

@@ -227,7 +227,7 @@ function cmd_filter() {
     local c_text_fg="" c_text_bg=""
     local c_prompt_fg="240" c_prompt_bg=""
     local c_placeholder_fg="240" c_placeholder_bg=""
-    local c_cursor_text_fg="" c_cursor_text_bg=""
+    local c_cursor_fg="" c_cursor_bg=""
     local c_sel_prefix_fg="212" c_sel_prefix_bg=""
     local c_unsel_prefix_fg="240" c_unsel_prefix_bg=""
 
@@ -261,20 +261,20 @@ Flags:
       --[no-]strip-ansi      Strip ANSI sequences when reading from STDIN
       --cursor.mode="blink"  Cursor mode (blink, hide, static)
 
-Style Flags (Colors accept 0-255, #HEX, R;G;B, none/clear, nombres básicos o
-              nombres CSS como 'coral', 'mediumseagreen'):
+Style Flags (Colors accept 0-255, #HEX, R;G;B, none/clear, basic names, or
+              CSS names like 'coral', 'mediumseagreen'):
   --indicator.foreground="212"
   --indicator.background=""
-  --selected-indicator.foreground="212"
-  --selected-indicator.background=""
+  --selected-prefix.foreground="212"
+  --selected-prefix.background=""
   --unselected-prefix.foreground="240"
   --unselected-prefix.background=""
   --header.foreground="99"
   --header.background=""
   --text.foreground=""
   --text.background=""
-  --cursor-text.foreground=""
-  --cursor-text.background=""
+  --cursor.foreground=""
+  --cursor.background=""
   --match.foreground="212"
   --match.background=""
   --prompt.foreground="240"
@@ -309,13 +309,12 @@ EOF
         local key="$1"
         local val=""
 
-        if [[ "$key" =~ ^--(indicator|selected-prefix|selected-indicator|unselected-prefix|header|text|cursor|cursor-text|match|prompt|placeholder)\.(foreground|background|bold|italic|underline|strikethrough|faint)$ ]]; then
+        if [[ "$key" =~ ^--(indicator|selected-prefix|unselected-prefix|header|text|cursor|match|prompt|placeholder)\.(foreground|background|bold|italic|underline|strikethrough|faint)$ ]]; then
             local comp="${BASH_REMATCH[1]}"
             local prop="${BASH_REMATCH[2]}"
             
-            [[ "$comp" == "selected-indicator" || "$comp" == "selected-prefix" ]] && comp="sel_prefix"
+            [[ "$comp" == "selected-prefix" ]] && comp="sel_prefix"
             [[ "$comp" == "unselected-prefix" ]] && comp="unsel_prefix"
-            [[ "$comp" == "cursor-text" || "$comp" == "cursor" ]] && comp="cursor_text"
 
             if [[ "$prop" =~ ^(bold|italic|underline|strikethrough|faint)$ ]]; then
                 if [[ $# -ge 2 && ! "$2" == --* ]]; then 
@@ -439,9 +438,8 @@ EOF
     fi
     
     [[ -s "$TEMP_DATA" ]] || { rm -f "$TEMP_DATA"; return 1; }
-
     if [[ "$strip_ansi_flag" == "true" ]]; then
-        sed -i -E 's/\x1b\]8;;[^\x1b]*\x1b\\//g; s/\x1b\][^\x1b\x07]*(\x07|\x1b\\)//g; s/\x1b\[[0-9;?]*[ -/]*[@-~]//g; s/\[[0-9;]*m//g; s/(^|[[:space:]])[0-9]+m/\1/g; s/[0-9]{1,3}m//g; s/[\x07\x1b]//g' "$TEMP_DATA"
+        strip_ansi "$TEMP_DATA"
     fi
 
     if [[ "$select_if_one" == "true" ]]; then
@@ -454,7 +452,7 @@ EOF
     local S_TEXT="$(make_ansi "$c_text_fg" "$c_text_bg")"
     local S_PROMPT="$(make_ansi "$c_prompt_fg" "$c_prompt_bg")"
     local S_PLACE="$(make_ansi "$c_placeholder_fg" "$c_placeholder_bg")"
-    local S_CUR_TEXT="$(make_ansi "$c_cursor_text_fg" "$c_cursor_text_bg")"
+    local S_CUR_TEXT="$(make_ansi "$c_cursor_fg" "$c_cursor_bg")"
     local S_SEL_PRE="$(make_ansi "$c_sel_prefix_fg" "$c_sel_prefix_bg")"
     local S_UNSEL_PRE="$(make_ansi "$c_unsel_prefix_fg" "$c_unsel_prefix_bg")"
 

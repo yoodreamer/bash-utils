@@ -261,7 +261,6 @@ Style Flags (Colors accept a name (incl. CSS names like 'coral'), #HEX, or 0-255
 EOF
     }
 
-    # ─── DEFAULTS ───
     local show_line_numbers=false
     local wrap_text=true
     local plain_mode=false
@@ -488,7 +487,6 @@ EOF
     [[ -z "$c_floating_title_fg" ]] && c_floating_title_fg="$c_border_fg"
     [[ -z "$c_floating_title_bg" ]] && c_floating_title_bg="$c_border_bg"
 
-    # ─── COMPILACIÓN DE ESTILOS FINALES ───
     local s_text="${modes_text}$(make_ansi "$c_text_fg" "$c_text_bg")"
     local s_border="${modes_border}$(make_ansi "$c_border_fg" "$c_border_bg")"
     local s_title="${modes_title}$(make_ansi "$c_title_fg" "$c_title_bg")"
@@ -535,7 +533,7 @@ EOF
     fi
 
     local raw_file="$input_file"
-    local raw_file_is_tmp=false   # ¿raw_file es un temp nuestro?
+    local raw_file_is_tmp=false   
     [[ -n "$tmp_file" ]] && raw_file_is_tmp=true
 
     if grep -q $'\t' "$input_file" 2>/dev/null; then
