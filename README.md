@@ -42,7 +42,7 @@ bash-utils write \
     --cursor.mode="blink" > story.txt
 ```
 
-<img width="1000" height="500" alt="write" src="https://github.com/user-attachments/assets/c9c45fed-ec1e-45b5-aa40-51dbe45ca724" />
+<img width="600" alt="write" src="https://github.com/user-attachments/assets/c9c45fed-ec1e-45b5-aa40-51dbe45ca724" />
 
 ## Filter
 
@@ -55,7 +55,7 @@ echo Cherry >> flavors.txt
 ./bash-utils filter < flavors.txt > selection.txt 
 ```
 
-<img width="1000" height="500" alt="filter" src="https://github.com/user-attachments/assets/10f835aa-33be-47e4-bf89-30bf47d16763" />
+<img width="600" alt="filter" src="https://github.com/user-attachments/assets/10f835aa-33be-47e4-bf89-30bf47d16763" />
 
 
 Select multiple options with the `--limit` flag or `--no-limit` flag. Use `tab` or `ctrl+space` to select, enter to confirm.
@@ -75,7 +75,7 @@ CARD=$(./bash-utils choose --height 15 {{A,K,Q,J},{10..2}}" "{♠,♥,♣,♦})
 echo "Was your card the ${CARD:?}?"
 ```
 
-<img width="1000" height="500" alt="choose" src="https://github.com/user-attachments/assets/2e276f6f-6b72-4433-9de9-0cfe35f0ba1e" />
+<img width="600" alt="choose" src="https://github.com/user-attachments/assets/2e276f6f-6b72-4433-9de9-0cfe35f0ba1e" />
 
 
 You can also select multiple items with the --limit or --no-limit flag, which determines the maximum of items that can be chosen.
@@ -93,7 +93,7 @@ Confirm whether to perform an action. Exits with code 0 (affirmative) or 1 (nega
 ./bash-utils confirm && rm file.txt || echo "File not removed"
 ```
 
-<img width="1000" height="500" alt="confirm" src="https://github.com/user-attachments/assets/b4759f3e-2a5a-44a5-ae29-64e19c60a562" />
+<img width="600" alt="confirm" src="https://github.com/user-attachments/assets/b4759f3e-2a5a-44a5-ae29-64e19c60a562" />
 
 ## File
 
@@ -114,7 +114,7 @@ bash-utils file \
     -a
 ```
 
-<img width="1000" height="500" alt="file" src="https://github.com/user-attachments/assets/8f27ed23-f4d2-45c5-b625-3baa40b129e0" />
+<img width="600" alt="file" src="https://github.com/user-attachments/assets/8f27ed23-f4d2-45c5-b625-3baa40b129e0" />
 
 
 ## Pager
@@ -135,7 +135,7 @@ Scroll through a long document with line numbers and a fully customizable viewpo
   < README.md
 ```
 
-<img width="1000" height="500" alt="pager" src="https://github.com/user-attachments/assets/3a66758a-8e9d-40be-9466-de3e3f4ad0d2" />
+<img width="600" alt="pager" src="https://github.com/user-attachments/assets/3a66758a-8e9d-40be-9466-de3e3f4ad0d2" />
 
 
 ## Spin
@@ -148,7 +148,7 @@ To view or pipe the command's output, use the --show-output flag.
 bash-utils spin --spinner dot --title "Buying Bubble Gum..." -- sleep 5
 ```
 
-<img width="1000" height="500" alt="spin" src="https://github.com/user-attachments/assets/8b55486c-a781-4426-8ba8-a36763eb1b23" />
+<img width="600" alt="spin" src="https://github.com/user-attachments/assets/8b55486c-a781-4426-8ba8-a36763eb1b23" />
 
 
 Available spinner types include: `dot`,`line`,`minidot`,`jump`,`pulse`,`points`,`globe`,`moon`,`monkey`,`meter`,`hamburger`,`standard`,`bar`,`process`.
@@ -168,7 +168,7 @@ ls -lh \
       --border-foreground=212
 ```
 
-<img width="1000" height="500" alt="table" src="https://github.com/user-attachments/assets/cf39f4c1-1039-430a-8f11-a0d54495b99a" />
+<img width="600" alt="table" src="https://github.com/user-attachments/assets/cf39f4c1-1039-430a-8f11-a0d54495b99a" />
 
 
 ## Style
@@ -182,7 +182,7 @@ Pretty print any string with any layout with one command.
 	'Bubble Gum (1¢)' 'So sweet and so fresh!'
 ```
 
-<img width="1000" height="500" alt="style" src="https://github.com/user-attachments/assets/9919b075-5ac5-4d70-87af-cc808f4cbd76" />
+<img width="600" alt="style" src="https://github.com/user-attachments/assets/9919b075-5ac5-4d70-87af-cc808f4cbd76" />
 
 
 ## Format
@@ -216,7 +216,7 @@ And render emojis
 echo ":flag_pe: :girl: :joy: :cat:" | bash-utils format -t "emoji"
 ```
 
-<img width="1000" height="500" alt="format" src="https://github.com/user-attachments/assets/6a752e49-016b-4dfa-b9f2-9726ff2d2e2e" />
+<img width="600" alt="format" src="https://github.com/user-attachments/assets/6a752e49-016b-4dfa-b9f2-9726ff2d2e2e" />
 
 
 ## Log
@@ -236,7 +236,7 @@ logs messages to the terminal at using different levels
 ./bash-utils log --time rfc822 --level error "Unable to create file."
 ```
 
-<img width="1000" height="500" alt="log" src="https://github.com/user-attachments/assets/dc9d9be8-cd7f-49de-a5da-22288da74f64" />
+<img width="600" alt="log" src="https://github.com/user-attachments/assets/dc9d9be8-cd7f-49de-a5da-22288da74f64" />
 
 
 ## Messagebox 
@@ -259,7 +259,7 @@ logs message into box
   --preffix.foreground=""
 ```
 
-<img width="1000" height="500" alt="messagebox" src="https://github.com/user-attachments/assets/b9a46ac2-da24-4fe5-99c6-a1c84cbf870e" />
+<img width="600" alt="messagebox" src="https://github.com/user-attachments/assets/b9a46ac2-da24-4fe5-99c6-a1c84cbf870e" />
 
 
 ## Text 
@@ -270,7 +270,7 @@ Show beautifiul text in terminal, with gradient effect!
 bash-utils text "[fg.grad=#AA6EE6,#5A3C96]♥ https://yoodreamer.github.io[end]" --bold --align=center 
 ```
 
-<img width="1000" height="500" alt="text" src="https://github.com/user-attachments/assets/fdb5f9ef-2cc1-45f8-8355-576694c8ace3" />
+<img width="600" alt="text" src="https://github.com/user-attachments/assets/fdb5f9ef-2cc1-45f8-8355-576694c8ace3" />
 
 
 ## Join
@@ -288,7 +288,7 @@ BUBBLE_GUM=$(bash-utils join "$BUBBLE" "$GUM")
 bash-utils join --align center --vertical "$I_LOVE" "$BUBBLE_GUM"
 ```
 
-<img width="1000" height="500" alt="join" src="https://github.com/user-attachments/assets/65302bed-01cf-4108-918e-3d053fc887ec" />
+<img width="600" alt="join" src="https://github.com/user-attachments/assets/65302bed-01cf-4108-918e-3d053fc887ec" />
 
 ---
 
