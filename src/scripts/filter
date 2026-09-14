@@ -240,7 +240,6 @@ Arguments:
 
 Flags:
   -h, --help                 Show context-sensitive help.
-  -v, --version              Print the version number
       --indicator="•"        Character for selection
       --selected=,...        Options that should start as selected
       --[no-]show-help       Show help keybinds
@@ -344,7 +343,6 @@ EOF
 
         case "$key" in
             -h|--help) show_help_panel; rm -f "$TEMP_DATA"; return 0 ;;
-            -v|--version) printf 'bash-utils filter v1.0.0\n'; rm -f "$TEMP_DATA"; return 0 ;;
             --reverse) reverse_mode=true; shift; continue ;;
             --fuzzy)   fuzzy_mode=true; shift; continue ;;
             --no-fuzzy) fuzzy_mode=false; shift; continue ;;
