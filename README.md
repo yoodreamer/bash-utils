@@ -1,5 +1,7 @@
 <div align=center><h1>Bash Utils</h1></div>
 
+<img src="https://github.com/user-attachments/assets/3c7262a2-7962-4082-9588-d65e18bbcf4a" alt="img" />
+
 <div align=center>A tool for shell scripts. Leverage the power of Bubbles and Lip Gloss in your scripts and aliases without writing any Go or Shell code!</div>
 
 ---
