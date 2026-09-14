@@ -216,7 +216,7 @@ And render emojis
 echo ":flag_pe: :girl: :joy: :cat:" | bash-utils format -t "emoji"
 ```
 
-<img width="600" alt="format" src="https://github.com/user-attachments/assets/6a752e49-016b-4dfa-b9f2-9726ff2d2e2e" />
+<img width="1000" alt="format" src="https://github.com/user-attachments/assets/6a752e49-016b-4dfa-b9f2-9726ff2d2e2e" />
 
 
 ## Log
