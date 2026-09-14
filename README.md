@@ -52,7 +52,7 @@ Filter a list of values with fuzzy matching:
 echo Strawberry >> flavors.txt
 echo Banana >> flavors.txt
 echo Cherry >> flavors.txt
-./bash-utils filter < flavors.txt > selection.txt 
+bash-utils filter < flavors.txt > selection.txt 
 ```
 
 <img width="600" alt="filter" src="https://github.com/user-attachments/assets/10f835aa-33be-47e4-bf89-30bf47d16763" />
@@ -71,7 +71,7 @@ Choose an option from a list of choices.
 
 ```bash 
 echo "Pick a card, any card..."
-CARD=$(./bash-utils choose --height 15 {{A,K,Q,J},{10..2}}" "{♠,♥,♣,♦})
+CARD=$(bash-utils choose --height 15 {{A,K,Q,J},{10..2}}" "{♠,♥,♣,♦})
 echo "Was your card the ${CARD:?}?"
 ```
 
@@ -90,7 +90,7 @@ cat foods.txt | bash-utils choose --no-limit --header "Grocery Shopping"
 Confirm whether to perform an action. Exits with code 0 (affirmative) or 1 (negative) depending on selection.
 
 ```bash 
-./bash-utils confirm && rm file.txt || echo "File not removed"
+bash-utils confirm && rm file.txt || echo "File not removed"
 ```
 
 <img width="600" alt="confirm" src="https://github.com/user-attachments/assets/b4759f3e-2a5a-44a5-ae29-64e19c60a562" />
@@ -176,7 +176,7 @@ ls -lh \
 Pretty print any string with any layout with one command.
 
 ```bash 
-./bash-utils style \
+bash-utils style \
 	--foreground 212 --border-foreground 212 --border double \
 	--align center --width 50 --margin "1 2" --padding "2 4" \
 	'Bubble Gum (1¢)' 'So sweet and so fresh!'
@@ -225,15 +225,15 @@ logs messages to the terminal at using different levels
 
 ```bash 
 # Log some debug information.
-./bash-utils log --level debug "Creating file..." name file.txt
+bash-utils log --level debug "Creating file..." name file.txt
 # DEBUG Unable to create file. name=temp.txt
 
 # Log some error.
-./bash-utils log --level error "Unable to create file." name file.txt
+bash-utils log --level error "Unable to create file." name file.txt
 # ERROR Unable to create file. name=temp.txt
 
 # Include a timestamp.
-./bash-utils log --time rfc822 --level error "Unable to create file."
+bash-utils log --time rfc822 --level error "Unable to create file."
 ```
 
 <img width="600" alt="log" src="https://github.com/user-attachments/assets/dc9d9be8-cd7f-49de-a5da-22288da74f64" />
@@ -244,7 +244,7 @@ logs messages to the terminal at using different levels
 logs message into box 
 
 ```bash 
-./bash-utils messagebox \
+bash-utils messagebox \
   --title=" Warn " \
   --type="Warning" \
   --title.align=center \
@@ -310,13 +310,13 @@ git commit -m "$(bash-utils input --width 50 --placeholder "Summary of changes")
 - Pick a commit hash from git history
 
 ```bash 
-./bash-utils filter <<< $(git log --oneline) | cut -d' ' -f1 
+bash-utils filter <<< $(git log --oneline) | cut -d' ' -f1 
 ```
 
 - Update packages **(Debian)**
 
 ```bash 
-apt list --upgradable 2>/dev/null | grep '/' | tail -n10 | awk -F'/' '{print $1}' | ./bash-utils filter --placeholder="Selecciona paquete para actualizar..." --indicator="→"
+apt list --upgradable 2>/dev/null | grep '/' | tail -n10 | awk -F'/' '{print $1}' | bash-utils filter --placeholder="Selecciona paquete para actualizar..." --indicator="→"
 ```
 - `sudo` replacement
 
