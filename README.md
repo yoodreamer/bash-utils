@@ -4,8 +4,6 @@
 
 <div align=center>A tool for shell scripts. Leverage the power of Bubbles and Lip Gloss in your scripts and aliases without writing any Go or Shell code!</div>
 
----
-
 ## Customization
 
 You can customize `bash-utils` options and styles with --flags. See `bash-utils` <command> --help for a full view of each command's customization and configuration options.
@@ -18,8 +16,6 @@ bash-utils input --prompt.foreground "212" \
           --value "Not much, hby?"
 ```
 
----
-
 ## Input 
 
 Prompt for input with a simple command.
@@ -30,8 +26,6 @@ bash-utils input --password > password.txt
 ```
 
 <img width="1000" height="500" alt="input" src="https://github.com/user-attachments/assets/494bdc8d-b7dd-4dc1-9e7b-639cb9bffc71" />
-
----
 
 ## Write
 
@@ -49,8 +43,6 @@ bash-utils write \
 ```
 
 <img width="1000" height="500" alt="write" src="https://github.com/user-attachments/assets/c9c45fed-ec1e-45b5-aa40-51dbe45ca724" />
-
---- 
 
 ## Filter
 
@@ -73,8 +65,6 @@ cat flavors.txt | bash-utils filter --limit 2
 cat flavors.txt | bash-utils filter --no-limit
 ```
 
----
-
 ## Choose
 
 Choose an option from a list of choices.
@@ -95,8 +85,6 @@ cat songs.txt | bash-utils choose --limit 5
 cat foods.txt | bash-utils choose --no-limit --header "Grocery Shopping"
 ```
 
----
-
 ## Confirm
 
 Confirm whether to perform an action. Exits with code 0 (affirmative) or 1 (negative) depending on selection.
@@ -106,8 +94,6 @@ Confirm whether to perform an action. Exits with code 0 (affirmative) or 1 (nega
 ```
 
 <img width="1000" height="500" alt="confirm" src="https://github.com/user-attachments/assets/b4759f3e-2a5a-44a5-ae29-64e19c60a562" />
-
----
 
 ## File
 
@@ -131,8 +117,6 @@ bash-utils file \
 <img width="1000" height="500" alt="file" src="https://github.com/user-attachments/assets/8f27ed23-f4d2-45c5-b625-3baa40b129e0" />
 
 
----
-
 ## Pager
 
 Scroll through a long document with line numbers and a fully customizable viewport.
@@ -153,7 +137,6 @@ Scroll through a long document with line numbers and a fully customizable viewpo
 
 <img width="1000" height="500" alt="pager" src="https://github.com/user-attachments/assets/3a66758a-8e9d-40be-9466-de3e3f4ad0d2" />
 
----
 
 ## Spin
 
@@ -167,13 +150,11 @@ bash-utils spin --spinner dot --title "Buying Bubble Gum..." -- sleep 5
 
 <img width="1000" height="500" alt="spin" src="https://github.com/user-attachments/assets/8b55486c-a781-4426-8ba8-a36763eb1b23" />
 
----
 
 Available spinner types include: `dot`,`line`,`minidot`,`jump`,`pulse`,`points`,`globe`,`moon`,`monkey`,`meter`,`hamburger`,`standard`,`bar`,`process`.
 
 ## Table
 
----
 
 Show data into terminal with beautifiul output.
 
@@ -189,7 +170,6 @@ ls -lh \
 
 <img width="1000" height="500" alt="table" src="https://github.com/user-attachments/assets/cf39f4c1-1039-430a-8f11-a0d54495b99a" />
 
----
 
 ## Style
 
@@ -204,7 +184,6 @@ Pretty print any string with any layout with one command.
 
 <img width="1000" height="500" alt="style" src="https://github.com/user-attachments/assets/9919b075-5ac5-4d70-87af-cc808f4cbd76" />
 
----
 
 ## Format
 
@@ -239,7 +218,6 @@ echo ":flag_pe: :girl: :joy: :cat:" | bash-utils format -t "emoji"
 
 <img width="1000" height="500" alt="format" src="https://github.com/user-attachments/assets/6a752e49-016b-4dfa-b9f2-9726ff2d2e2e" />
 
----
 
 ## Log
 
@@ -260,7 +238,6 @@ logs messages to the terminal at using different levels
 
 <img width="1000" height="500" alt="log" src="https://github.com/user-attachments/assets/dc9d9be8-cd7f-49de-a5da-22288da74f64" />
 
----
 
 ## Messagebox 
 
@@ -284,7 +261,6 @@ logs message into box
 
 <img width="1000" height="500" alt="messagebox" src="https://github.com/user-attachments/assets/b9a46ac2-da24-4fe5-99c6-a1c84cbf870e" />
 
----
 
 ## Text 
 
@@ -296,7 +272,6 @@ bash-utils text "[fg.grad=#AA6EE6,#5A3C96]♥ https://yoodreamer.github.io[end]"
 
 <img width="1000" height="500" alt="text" src="https://github.com/user-attachments/assets/fdb5f9ef-2cc1-45f8-8355-576694c8ace3" />
 
----
 
 ## Join
 
